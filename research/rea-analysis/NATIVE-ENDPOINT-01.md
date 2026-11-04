@@ -51,6 +51,20 @@ The unsigned development ZIP is distinct from the ASIO installer. Boot settings,
 driver binding, service registration and Windows defaults have not been changed. Kernel execution
 needs a separately agreed signing/testing route under the user's existing no-boot-change constraint.
 
+## Prepared local test-signature variant
+
+A separate `NimBox-1-native-0.2.0-dev-testsigned-x64.zip` was prepared without installation or
+certificate trust changes. SHA256: `034AA82621FE4D5A6B9D0F0F2D7C46341CE2740BCF10A0BF1A248FE3A3163DD3`.
+The embedded kernel signature and regenerated catalogue use `CN=NimBox Development Test`,
+thumbprint `56F7A692B142A98E597BAAE174825438D5E09065`, expiring 2027-02-02. Catalogue cryptographic
+signature verification passes without chain trust. The public certificate is included for review;
+the private key/password are excluded and kept in an ACL-restricted local work directory.
+
+Read-only elevated `Confirm-SecureBootUEFI` returned False. The current BCD entry has no explicit
+testsigning option. These settings were not altered. Neither a signature exception nor Test Mode
+has been authorized or enabled. A local self-signature alone is insufficient for normal kernel
+signature enforcement; the next decision is a separately approved controlled kernel test route.
+
 ## Primary references
 
 - https://github.com/microsoft/Windows-driver-samples/tree/1fd430c78971c31b624b0773bbea825d8b480d55/audio/sysvad

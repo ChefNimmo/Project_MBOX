@@ -1,7 +1,7 @@
 # NimBox native Windows endpoints — development snapshot
 
 This is the new **native Windows audio** component, separate from the tested ASIO 0.1.0
-installer. It is not installed, hardware-tested in kernel mode, signed, or ready for general use.
+installer. It is not installed, hardware-tested in kernel mode, production-signed, or ready for general use.
 
 The target Windows playback and capture names are both **NimBox 1 USB audio device**.
 The first implementation supports stereo, 48 kHz, PCM with 24 valid bits in a 32-bit container.
@@ -78,3 +78,10 @@ step and run `Build-Reference.ps1 -NimBox` directly.
 `NimBoxWindowsProbe.exe` enumerates exactly one active NimBox playback/capture pair. Once the
 native driver and broker have been installed through an agreed test route, `--silent 15` checks
 WASAPI shared duplex using silent output and capture frame counters only. It never saves audio.
+
+`Prepare-Test-Signature.ps1` creates a separate locally test-signed ZIP, public test certificate
+and signature metadata. It signs the kernel binary, regenerates/signs the catalogue and checks
+the catalogue's cryptographic signature without trusting its chain. It does **not** install the
+certificate, driver or service, or change boot policy. The 90-day development certificate is not
+Microsoft production signing. Private keys stay in an ACL-restricted `work/private-nimbox-signing-*`
+directory, outside the source/package. Their password is protected with current-user DPAPI.
