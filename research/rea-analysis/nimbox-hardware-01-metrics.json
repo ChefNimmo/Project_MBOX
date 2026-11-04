@@ -1,0 +1,46 @@
+[
+  {
+    "TestFile": "usbdk-enumeration-01.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\n"
+  },
+  {
+    "TestFile": "usbdk-silent-48k-01.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=48000/47999 peak=132864/132608 failures=0 cancelled=0\r\n"
+  },
+  {
+    "TestFile": "usbdk-silent-48k-10s.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=480000/479993 peak=140800/128512 failures=0 cancelled=0\r\n"
+  },
+  {
+    "TestFile": "usbdk-silent-44k-10s.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=441000/440992 peak=166400/128512 failures=0 cancelled=0\r\n"
+  },
+  {
+    "TestFile": "usbdk-tone-48k-01.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nDiagnostic tone: 750 Hz, -40 dBFS peak, both channels, maximum five seconds.\r\nUsbDk result=0 OUT/IN frames=240000/239996 peak=138752/115968 failures=0 cancelled=0\r\n"
+  },
+  {
+    "TestFile": "nimbox-input2-after-ploytec-removal.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=480000/479994 peak=34859520/194876416 failures=0 cancelled=0\r\n"
+  },
+  {
+    "TestFile": "nimbox-input1-after-ploytec-removal.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=480000/479994 peak=113209088/48341760 failures=0 cancelled=0\r\nCapture channel 1: RMS -40.27 dBFS, DC 0.002350811, frames=479994\r\nCapture channel 2: RMS -45.04 dBFS, DC 0.002395521, frames=479994\r\n"
+  },
+  {
+    "TestFile": "nimbox-input-idle-levels-01.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=240000/239997 peak=83291904/44741376 failures=0 cancelled=0\r\nCapture channel 1: RMS -42.13 dBFS, DC 0.003717994, frames=239997\r\nCapture channel 2: RMS -42.68 dBFS, DC 0.003782974, frames=239997\r\n"
+  },
+  {
+    "TestFile": "nimbox-capture-startup-windows-01.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=240000/239997 peak=50073856/49334272 failures=0 cancelled=0\r\nCapture channel 1: RMS -41.96 dBFS, DC 0.003972317, frames=239997\r\n  first two seconds: RMS -39.08 dBFS, DC 0.003202155, peak=50073856, frames=96000\r\n  after two seconds: RMS -46.25 dBFS, DC 0.004485770, peak=18742784, frames=143997\r\nCapture channel 2: RMS -41.96 dBFS, DC 0.004030507, frames=239997\r\n  first two seconds: RMS -39.09 dBFS, DC 0.003310338, peak=49334272, frames=96000\r\n  after two seconds: RMS -46.22 dBFS, DC 0.004510630, peak=18692352, frames=143997\r\n"
+  },
+  {
+    "TestFile": "nimbox-capture-startup-windows-20s.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nUsbDk result=0 OUT/IN frames=960000/959989 peak=46422784/44806912 failures=0 cancelled=0\r\nCapture channel 1: RMS -48.54 dBFS, DC 0.001135785, frames=959989\r\n  first two seconds: RMS -39.72 dBFS, DC 0.002992681, peak=46422784, frames=96000\r\n  after two seconds: RMS -54.33 dBFS, DC 0.000929460, peak=17636352, frames=863989\r\n  after ten seconds: RMS -79.42 dBFS, DC 0.000046049, peak=787200, frames=479989\r\nCapture channel 2: RMS -48.62 dBFS, DC 0.001161078, frames=959989\r\n  first two seconds: RMS -39.83 dBFS, DC 0.003143905, peak=44806912, frames=96000\r\n  after two seconds: RMS -54.31 dBFS, DC 0.000940761, peak=17378048, frames=863989\r\n  after ten seconds: RMS -82.78 dBFS, DC 0.000050021, peak=534272, frames=479989\r\n"
+  },
+  {
+    "TestFile": "nimbox-tone-after-ploytec-removal.txt",
+    "Output": "Original Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nDiagnostic tone: 750 Hz, -40 dBFS peak, both channels, maximum five seconds.\r\nUsbDk result=0 OUT/IN frames=240000/239997 peak=41236480/39164160 failures=0 cancelled=0\r\nCapture channel 1: RMS -43.25 dBFS, DC 0.003652205, frames=239997\r\n  first two seconds: RMS -40.46 dBFS, DC 0.003107191, peak=41236480, frames=96000\r\n  after two seconds: RMS -47.24 dBFS, DC 0.004015555, peak=16664576, frames=143997\r\nCapture channel 2: RMS -43.38 dBFS, DC 0.003725554, frames=239997\r\n  first two seconds: RMS -40.63 dBFS, DC 0.003279755, peak=39164160, frames=96000\r\n  after two seconds: RMS -47.24 dBFS, DC 0.004022759, peak=16434176, frames=143997\r\n"
+  }
+]
