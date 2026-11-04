@@ -7,13 +7,14 @@
 #include <wdfusb.h>
 #include <initguid.h>
 #include "mbox_ioctl.h"
+#include "../core/mbox_gate.h"
 
 DEFINE_GUID(GUID_DEVINTERFACE_MBOX_RESEARCH,
  0x65ec12b8,0xe2a2,0x41b0,0x96,0x5e,0x78,0xcf,0x2a,0x39,0x83,0xc1);
 typedef struct {
  WDFUSBDEVICE Usb;
  WDFUSBPIPE In,Out;
- volatile LONG Busy; /* bit0 OUT, bit1 IN, bit2 control; CAS serialises rate changes */
+ volatile LONG Busy; /* OUT/IN counts in low nibbles, bit8 control; atomic gate */
  ULONG Rate;
 } DEVICE_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT,DeviceContext);
@@ -23,7 +24,6 @@ typedef struct {
  PUCHAR Data;
  MBOX_TRANSFER_OUTPUT *Output;
  ULONG Direction,Bytes;
- LONG Bit;
 } REQUEST_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(REQUEST_CONTEXT,RequestContext);
 
@@ -32,6 +32,8 @@ EVT_WDF_DRIVER_DEVICE_ADD MboxAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE MboxPrepare;
 EVT_WDF_DEVICE_RELEASE_HARDWARE MboxRelease;
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL MboxControl;
+EVT_WDF_IO_QUEUE_IO_STOP MboxStop;
+EVT_WDF_DEVICE_D0_ENTRY MboxD0Entry;
 EVT_WDF_REQUEST_COMPLETION_ROUTINE MboxTransferComplete;
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT object,PUNICODE_STRING path) {
@@ -53,6 +55,7 @@ NTSTATUS MboxAdd(WDFDRIVER driver,PWDFDEVICE_INIT init) {
  if(!NT_SUCCESS(status))return status;
  WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
  pnp.EvtDevicePrepareHardware=MboxPrepare;pnp.EvtDeviceReleaseHardware=MboxRelease;
+ pnp.EvtDeviceD0Entry=MboxD0Entry;
  WdfDeviceInitSetPnpPowerEventCallbacks(init,&pnp);
  WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attrs,REQUEST_CONTEXT);
  WdfDeviceInitSetRequestAttributes(init,&attrs);
@@ -64,9 +67,25 @@ NTSTATUS MboxAdd(WDFDRIVER driver,PWDFDEVICE_INIT init) {
  if(!NT_SUCCESS(status))return status;
  WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue,WdfIoQueueDispatchParallel);
  queue.EvtIoDeviceControl=MboxControl;
+ queue.EvtIoStop=MboxStop;
  /* Sent requests are owned/cancelled by the USB I/O target; unsent requests
   * are completed in this callback. No driver-owned pending request list. */
  return WdfIoQueueCreate(device,&queue,WDF_NO_OBJECT_ATTRIBUTES,WDF_NO_HANDLE);
+}
+VOID MboxStop(WDFQUEUE queue,WDFREQUEST request,ULONG flags) {
+ UNREFERENCED_PARAMETER(queue);UNREFERENCED_PARAMETER(flags);
+ /* Forwarded transfers finish through their existing completion routine.
+  * Keep the request alive if cancellation completes it before this returns.
+  * A synchronous control callback retains its own bounded timeout. */
+ WdfObjectReference(request);
+ (void)WdfRequestCancelSentRequest(request);
+ WdfObjectDereference(request);
+}
+NTSTATUS MboxD0Entry(WDFDEVICE device,WDF_POWER_DEVICE_STATE previous) {
+ UNREFERENCED_PARAMETER(previous);
+ /* Require SET+GET verification again after any power transition. */
+ DeviceContext(device)->Rate=0;
+ return STATUS_SUCCESS;
 }
 NTSTATUS MboxPrepare(WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated) {
  DEVICE_CONTEXT *ctx=DeviceContext(device);
@@ -141,13 +160,23 @@ static NTSTATUS MboxRateEndpoint(DEVICE_CONTEXT *ctx,UCHAR endpoint,ULONG rate) 
   return STATUS_DEVICE_DATA_ERROR;
  return STATUS_SUCCESS;
 }
-static BOOLEAN MboxAcquire(DEVICE_CONTEXT *ctx,LONG bit) {
+static BOOLEAN MboxAcquire(DEVICE_CONTEXT *ctx,ULONG direction) {
  LONG old=InterlockedCompareExchange(&ctx->Busy,0,0);
  for(;;) {
-  LONG actual;
-  if(old&(bit|4))return FALSE;
-  actual=InterlockedCompareExchange(&ctx->Busy,old|bit,old);
+  LONG actual;uint32_t next;
+  if(!mbox_gate_acquire((uint32_t)old,direction,&next))return FALSE;
+  actual=InterlockedCompareExchange(&ctx->Busy,(LONG)next,old);
   if(actual==old)return TRUE;
+  old=actual;
+ }
+}
+static VOID MboxReleaseTransfer(DEVICE_CONTEXT *ctx,ULONG direction) {
+ LONG old=InterlockedCompareExchange(&ctx->Busy,0,0);
+ for(;;) {
+  LONG actual;uint32_t next;
+  if(!mbox_gate_release((uint32_t)old,direction,&next)){NT_ASSERT(FALSE);return;}
+  actual=InterlockedCompareExchange(&ctx->Busy,(LONG)next,old);
+  if(actual==old)return;
   old=actual;
  }
 }
@@ -170,7 +199,7 @@ VOID MboxTransferComplete(WDFREQUEST request,WDFIOTARGET target,
   }
   if(r->Direction&&NT_SUCCESS(status))RtlCopyMemory(out->Data,r->Data,r->Bytes);
  }
- InterlockedAnd(&r->Device->Busy,~r->Bit);
+ MboxReleaseTransfer(r->Device,r->Direction);
  WdfRequestCompleteWithInformation(request,status,NT_SUCCESS(status)?sizeof(*out):0);
 }
 VOID MboxControl(WDFQUEUE queue,WDFREQUEST request,size_t outputLength,size_t inputLength,ULONG code) {
@@ -183,7 +212,7 @@ VOID MboxControl(WDFQUEUE queue,WDFREQUEST request,size_t outputLength,size_t in
   if(!NT_SUCCESS(status))goto done;
   value=*rate;
   if(value!=44100&&value!=48000){status=STATUS_INVALID_PARAMETER;goto done;}
-  if(InterlockedCompareExchange(&ctx->Busy,4,0)!=0){status=STATUS_DEVICE_BUSY;goto done;}
+  if(InterlockedCompareExchange(&ctx->Busy,MBOX_CONTROL_GATE,0)!=0){status=STATUS_DEVICE_BUSY;goto done;}
   ctx->Rate=0;
   status=MboxRateEndpoint(ctx,0x02,value);
   if(NT_SUCCESS(status))status=MboxRateEndpoint(ctx,0x81,value);
@@ -208,8 +237,8 @@ VOID MboxControl(WDFQUEUE queue,WDFREQUEST request,size_t outputLength,size_t in
    if(length>304||(!input->Direction&&(length==0||length%6))){status=STATUS_INVALID_PARAMETER;goto done;}
    offsets[i]=bytes;bytes+=length;
   }
-  r->Device=ctx;r->Direction=input->Direction;r->Bit=input->Direction?2:1;r->Bytes=bytes;r->Output=output;
-  if(!MboxAcquire(ctx,r->Bit)){status=STATUS_DEVICE_BUSY;goto done;}
+  r->Device=ctx;r->Direction=input->Direction;r->Bytes=bytes;r->Output=output;
+  if(!MboxAcquire(ctx,r->Direction)){status=STATUS_DEVICE_BUSY;goto done;}
   if(!ctx->Rate||!ctx->In||!ctx->Out){status=STATUS_INVALID_DEVICE_STATE;goto release;}
   pipe=r->Direction?ctx->In:ctx->Out;
   WDF_OBJECT_ATTRIBUTES_INIT(&attrs);attrs.ParentObject=request;
@@ -236,7 +265,7 @@ VOID MboxControl(WDFQUEUE queue,WDFREQUEST request,size_t outputLength,size_t in
   if(WdfRequestSend(request,WdfUsbTargetPipeGetIoTarget(pipe),&options))return;
   status=WdfRequestGetStatus(request);
 release:
-  InterlockedAnd(&ctx->Busy,~r->Bit);
+  MboxReleaseTransfer(ctx,r->Direction);
  }
 done:
  WdfRequestComplete(request,status);
