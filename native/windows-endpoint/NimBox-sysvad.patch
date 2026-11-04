@@ -52,7 +52,75 @@
  #include "IHVPrivatePropertySet.h"
 --- a/EndpointsCommon/minwavert.cpp
 +++ b/EndpointsCommon/minwavert.cpp
-@@ -676,6 +676,17 @@
+@@ -263,46 +263,28 @@
+ 
+ --*/
+ {
+-    ULONG                   requiredSize;
+-
+-    UNREFERENCED_PARAMETER(PinId);
+-    UNREFERENCED_PARAMETER(ResultantFormat);
+-
+-    PAGED_CODE();
+-
+-    if (!IsEqualGUIDAligned(ClientDataRange->Specifier, KSDATAFORMAT_SPECIFIER_WAVEFORMATEX))
+-    {
+-        return STATUS_NOT_IMPLEMENTED;
+-    }
+-
+-    requiredSize = sizeof (KSDATAFORMAT_WAVEFORMATEX);
+-
+-    //
+-    // Validate return buffer size, if the request is only for the
+-    // size of the resultant structure, return it now before
+-    // returning other types of errors.
+-    //
+-    if (!OutputBufferLength) 
+-    {
+-        *ResultantFormatLength = requiredSize;
+-        return STATUS_BUFFER_OVERFLOW;
+-    } 
+-    else if (OutputBufferLength < requiredSize) 
+-    {
+-        return STATUS_BUFFER_TOO_SMALL;
+-    }
+-
+-    // Verify channel count is supported. This routine assumes a separate data
+-    // range for each supported channel count.
+-    if (((PKSDATARANGE_AUDIO)MyDataRange)->MaximumChannels != ((PKSDATARANGE_AUDIO)ClientDataRange)->MaximumChannels)
+-    {
++    PAGED_CODE();
++    if(!ResultantFormatLength || !ClientDataRange || !MyDataRange) return STATUS_INVALID_PARAMETER;
++    if(!IsEqualGUIDAligned(ClientDataRange->Specifier,KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) ||
++       ClientDataRange->FormatSize<sizeof(KSDATARANGE_AUDIO) || MyDataRange->FormatSize<sizeof(KSDATARANGE_AUDIO))
+         return STATUS_NO_MATCH;
+-    }
+-    
+-    //
+-    // Ok, let the class handler do the rest.
+-    //
+-    return STATUS_NOT_IMPLEMENTED;
++    if(!IsEqualGUIDAligned(ClientDataRange->MajorFormat,KSDATAFORMAT_TYPE_AUDIO) &&
++       !IsEqualGUIDAligned(ClientDataRange->MajorFormat,KSDATAFORMAT_TYPE_WILDCARD)) return STATUS_NO_MATCH;
++    if(!IsEqualGUIDAligned(ClientDataRange->SubFormat,KSDATAFORMAT_SUBTYPE_PCM) &&
++       !IsEqualGUIDAligned(ClientDataRange->SubFormat,KSDATAFORMAT_SUBTYPE_WILDCARD)) return STATUS_NO_MATCH;
++    auto client=reinterpret_cast<PKSDATARANGE_AUDIO>(ClientDataRange);
++    if(client->MaximumChannels<2 || client->MinimumBitsPerSample>32 || client->MaximumBitsPerSample<32 ||
++       client->MinimumSampleFrequency>48000 || client->MaximumSampleFrequency<48000) return STATUS_NO_MATCH;
++    PKSDATAFORMAT_WAVEFORMATEXTENSIBLE formats=nullptr;
++    if(!GetPinSupportedDeviceFormats(PinId,&formats) || !formats) return STATUS_NO_MATCH;
++    *ResultantFormatLength=sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE);
++    if(!OutputBufferLength)return STATUS_BUFFER_OVERFLOW;
++    if(OutputBufferLength<*ResultantFormatLength)return STATUS_BUFFER_TOO_SMALL;
++    if(!ResultantFormat)return STATUS_INVALID_PARAMETER;
++    // Preserve 24 valid bits and stereo mask. PortCls' generic PCM intersection
++    // cannot infer these from a 32-bit container-only data range.
++    RtlCopyMemory(ResultantFormat,&formats[0],sizeof(*formats));
++    return STATUS_SUCCESS;
+ } // DataRangeIntersection
+ 
+ //=============================================================================
+@@ -676,6 +658,17 @@
      GUID                        signalProcessingMode = AUDIO_SIGNALPROCESSINGMODE_DEFAULT;
      
      *OutStream = NULL;

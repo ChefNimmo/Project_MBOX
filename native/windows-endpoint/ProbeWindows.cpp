@@ -40,9 +40,13 @@ static HRESULT silentDuplex(IMMDevice* output,IMMDevice* input,unsigned seconds)
     Com<IAudioClient> render,capture;Com<IAudioRenderClient> writer;Com<IAudioCaptureClient> reader;
     WAVEFORMATEX *rf=nullptr,*cf=nullptr;
     HRESULT hr=output->Activate(__uuidof(IAudioClient),CLSCTX_ALL,nullptr,reinterpret_cast<void**>(render.address()));
+    printf("Render Activate=%08lx\n",(unsigned long)hr);
     if(SUCCEEDED(hr))hr=input->Activate(__uuidof(IAudioClient),CLSCTX_ALL,nullptr,reinterpret_cast<void**>(capture.address()));
+    printf("Capture Activate=%08lx\n",(unsigned long)hr);
     if(SUCCEEDED(hr))hr=render->GetMixFormat(&rf);
+    printf("Render GetMixFormat=%08lx\n",(unsigned long)hr);
     if(SUCCEEDED(hr))hr=capture->GetMixFormat(&cf);
+    printf("Capture GetMixFormat=%08lx\n",(unsigned long)hr);
     if(SUCCEEDED(hr)) {
         printf("Windows mix: render %lu Hz/%u channels/%u bits; capture %lu Hz/%u channels/%u bits\n",
             rf->nSamplesPerSec,rf->nChannels,rf->wBitsPerSample,cf->nSamplesPerSec,cf->nChannels,cf->wBitsPerSample);

@@ -1,7 +1,10 @@
 # NimBox native Windows endpoints — development snapshot
 
 This is the new **native Windows audio** component, separate from the tested ASIO 0.1.0
-installer. It is not installed, hardware-tested in kernel mode, production-signed, or ready for general use.
+installer. The first development build has loaded and exposed Windows playback/capture endpoints,
+and its broker/control interface passed a 45-second USB test. Windows shared audio rejected the
+initial default format. A corrected 0.2.0.2 build is prepared for the next controlled load; it is
+not yet validated for Windows playback/capture or ready for general use.
 
 The target Windows playback and capture names are both **NimBox 1 USB audio device**.
 The first implementation supports stereo, 48 kHz, PCM with 24 valid bits in a 32-bit container.
@@ -60,14 +63,15 @@ root device, trusts certificates, or changes boot policy.
 - Core test exercises exact ABI validation and 4,224 guarded DMA ring wrap cases.
 - Broker's separate silent USB-only test passed 15 seconds: 719,993 input/output frames,
   zero underruns, overflows and USB errors. No audio files were saved.
-- **No native Windows endpoint playback/capture has been tested yet.** Kernel loading,
-  endpoint enumeration, Windows Sound controls, WASAPI duplex, EOS, restart, service recovery,
+- Kernel loading and endpoint enumeration succeeded, but the first WASAPI attempt failed default
+  format negotiation. Windows Sound controls, successful WASAPI duplex, EOS, restart, service recovery,
   Driver Verifier, unplug/sleep and real DAWs still require execution and debugging.
 - The 10-second input startup mute remains in the shared USB engine.
 - An unsigned catalogue does not permit kernel loading under normal signing enforcement.
   A supported signing/testing route must be agreed before installation. Current boot policy
-  is now separately approved and configured for Test Mode, pending a manual restart; see
-  `research/rea-analysis/NATIVE-TESTMODE-01.md`. The working ASIO installation remains the rollback option.
+  is now separately approved and Test Mode was verified active after restart. The driver format
+  correction needs a further restart/controlled reinstall; see
+  `research/rea-analysis/NATIVE-FIRST-LOAD-01.md`. The working ASIO installation remains the rollback option.
 
 Own additions: GPL-3.0-only, see `../COPYING`. Microsoft source/patch context retains its MIT
 licence, reproduced in `MICROSOFT-LICENSE.txt`. UsbDk headers retain Apache-2.0 notices.

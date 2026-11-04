@@ -1,3 +1,4 @@
+param([ValidatePattern('^[0-9A-Za-z.-]+$')][string]$VersionTag='0.2.0-dev')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath("$PSScriptRoot\..\..")
 $native=Join-Path $root 'native'
@@ -31,7 +32,7 @@ foreach($file in @('usbdk_backend.h','mbox_ioctl.h')) {Copy-Item "$native\kmdf\$
 New-Item -ItemType Directory -Force "$source\native\third_party" | Out-Null
 Copy-Item "$native\third_party\usbdk" "$source\native\third_party" -Recurse
 Copy-Item "$native\COPYING" "$source\native"
-$sourceZip=Join-Path $dist 'NimBox-1-native-0.2.0-dev-source.zip'
+$sourceZip=Join-Path $dist "NimBox-1-native-$VersionTag-source.zip"
 Compress-Archive -Path "$source\native" -DestinationPath $sourceZip -Force
 Copy-Item $sourceZip "$stage\source.zip"
 @'
@@ -61,8 +62,8 @@ $manifest+=Get-Item "$stage\NimBoxAudioBroker.exe" | ForEach-Object {
     [ordered]@{File=$_.Name;SHA256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash;Bytes=$_.Length}
 }
 $manifest | ConvertTo-Json -Depth 4 | Set-Content "$stage\manifest.json"
-$package=Join-Path $dist 'NimBox-1-native-0.2.0-dev-x64.zip'
+$package=Join-Path $dist "NimBox-1-native-$VersionTag-x64.zip"
 Compress-Archive -Path "$stage\*" -DestinationPath $package -Force
 Get-FileHash $package,$sourceZip -Algorithm SHA256 | Select-Object Path,Hash |
-    ConvertTo-Json | Set-Content (Join-Path $dist 'NimBox-1-native-0.2.0-dev-manifest.json')
+    ConvertTo-Json | Set-Content (Join-Path $dist "NimBox-1-native-$VersionTag-manifest.json")
 Write-Host "Unsigned development package: $package"
