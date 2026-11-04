@@ -265,11 +265,37 @@ static HANDLE open_device(void) {
  }
  free(detail);SetupDiDestroyDeviceInfoList(set);return device;
 }
+#include "usbdk_backend.h"
 int main(int argc,char **argv) {
  if(argc==2&&strcmp(argv[1],"--self-test")==0)return self_test();
+ if((argc==3&&strcmp(argv[1],"usbdk-list")==0)||
+    (argc==5&&strcmp(argv[1],"usbdk-silent")==0)) {
+  int silent=argc==5;ULONG rate=0;unsigned long seconds=0;char *end;
+  if(silent) {
+   if(strcmp(argv[3],"44100")==0)rate=44100;
+   else if(strcmp(argv[3],"48000")==0)rate=48000;
+   else return 2;
+   seconds=strtoul(argv[4],&end,10);if(!*argv[4]||*end||seconds<1||seconds>60)return 2;
+  }
+  UDK *u=(UDK*)calloc(1,sizeof(UDK));if(!u)return 1;
+  int result=1;
+  if(udk_load(u,argv[2])&&udk_find(u,silent)) {
+   if(!silent)result=0;
+   else if(udk_rate(u,rate)) {
+    BACKEND backend={u,udk_submit,real_wait,udk_finish,udk_cancel,real_stop};STATS stats;
+    SetConsoleCtrlHandler(on_console,TRUE);result=run(&backend,rate,(unsigned)seconds,&stats);
+    SetConsoleCtrlHandler(on_console,FALSE);
+    printf("UsbDk result=%d OUT/IN frames=%llu/%llu peak=%lu/%lu failures=%u cancelled=%u\n",
+     result,(unsigned long long)stats.Frames[0],(unsigned long long)stats.Frames[1],stats.Peak[0],stats.Peak[1],stats.Failures,stats.Cancelled);
+   }
+  }
+  udk_close(u);free(u);return result;
+ }
  if(argc!=4||strcmp(argv[1],"silent")!=0||
     (strcmp(argv[2],"44100")&&strcmp(argv[2],"48000"))) {
-  puts("Usage: mbox_stream.exe --self-test | silent 44100|48000 seconds(1..60)");return 2;
+  puts("Usage: mbox_stream.exe --self-test | silent 44100|48000 seconds(1..60)");
+  puts("       mbox_stream.exe usbdk-list C:\\absolute\\UsbDkHelper.dll");
+  puts("       mbox_stream.exe usbdk-silent C:\\absolute\\UsbDkHelper.dll 44100|48000 seconds");return 2;
  }
  char *end;unsigned long duration=strtoul(argv[3],&end,10);
  if(!*argv[3]||*end||duration<1||duration>60)return 2;
