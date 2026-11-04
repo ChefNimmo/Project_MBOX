@@ -11,6 +11,7 @@
 #include "mbox_ioctl.h"
 #include "../core/mbox_stream.h"
 #include "../core/mbox_gate.h"
+#include "../core/mbox_audio_fifo.h"
 DEFINE_GUID(GUID_DEVINTERFACE_MBOX_STREAM,
  0x65ec12b8,0xe2a2,0x41b0,0x96,0x5e,0x78,0xcf,0x2a,0x39,0x83,0xc1);
 enum { SLOT_COUNT=2*MBOX_PIPE_DEPTH };
@@ -33,17 +34,33 @@ typedef struct BACKEND {
  void (*Cancel)(struct BACKEND *,SLOT *);
  int (*Stop)(struct BACKEND *);
 } BACKEND;
+typedef struct {
+ int32_t Tx[2048],Rx[2048],Left[256],Right[256];
+} AUDIO_WORK;
+
+static void host_peaks(STATS *stats,const int32_t *left,const int32_t *right,size_t frames) {
+ for(size_t i=0;i<frames;i++) {
+  uint32_t peaks[2]={left[i]<0?0u-(uint32_t)left[i]:(uint32_t)left[i],
+                    right[i]<0?0u-(uint32_t)right[i]:(uint32_t)right[i]};
+  for(unsigned c=0;c<2;c++)if(peaks[c]>stats->Peak[c])stats->Peak[c]=peaks[c];
+ }
+}
 
 /* This scheduler is shared by the actual DeviceIoControl backend and simulator.
  * All slots stay alive until their completion has been drained, including after
  * submit/completion failure or cancellation. Only the control thread owns slots. */
 static int run(BACKEND *backend,ULONG rate,unsigned seconds,STATS *stats) {
  SLOT *slots=(SLOT*)calloc(SLOT_COUNT,sizeof(SLOT));
+ AUDIO_WORK *audio=(AUDIO_WORK*)calloc(1,sizeof(AUDIO_WORK));
  HANDLE events[SLOT_COUNT]={0}; /* owned by scheduler, never by a backend */
  mbox_packet_clock clock;uint64_t target=(uint64_t)seconds*125;
+ int32_t *left,*right;
+ mbox_audio_fifo tx,rx;
  int result=0;unsigned idle=0,eventCount=0;
  memset(stats,0,sizeof(*stats));
- if(!slots||!target||!mbox_clock_init(&clock,rate)){free(slots);return 1;}
+ if(!slots||!audio||!target||!mbox_clock_init(&clock,rate)){free(audio);free(slots);return 1;}
+ left=audio->Left;right=audio->Right;
+ if(!mbox_fifo_init(&tx,audio->Tx,1024)||!mbox_fifo_init(&rx,audio->Rx,1024)){free(audio);free(slots);return 1;}
  for(unsigned i=0;i<SLOT_COUNT;i++) {
   slots[i].Index=i;slots[i].Direction=i/MBOX_PIPE_DEPTH;
   events[i]=CreateEventW(NULL,TRUE,FALSE,NULL);
@@ -61,7 +78,18 @@ static int run(BACKEND *backend,ULONG rate,unsigned seconds,STATS *stats) {
    if(!dir) {
     mbox_packet packets[MBOX_PACKET_COUNT];uint32_t bytes;
     if(!mbox_plan(&clock,packets,MBOX_PACKET_COUNT,MBOX_BUFFER_BYTES,&bytes)){result=1;goto drain;}
-    for(unsigned p=0;p<MBOX_PACKET_COUNT;p++)s->Input.Length[p]=packets[p].length;
+    for(unsigned p=0;p<MBOX_PACKET_COUNT;p++) {
+     s->Input.Length[p]=packets[p].length;
+     size_t needed=packets[p].length/6;
+     while(tx.count<needed) {
+      /* Silent host blocks only. The future audio frontend will supply these. */
+      memset(left,0,256*sizeof(*left));memset(right,0,256*sizeof(*right));
+      if(!mbox_fifo_write_planar(&tx,left,right,256)){result=1;goto drain;}
+     }
+     if(mbox_fifo_read_wire(&tx,&s->Input.Data[packets[p].offset],packets[p].length)!=needed) {
+      result=1;goto drain;
+     }
+    }
    }
    if(!backend->Submit(backend,s)){stats->Failures++;result=1;goto drain;}
    s->Active=1;stats->Submitted[dir]++;stats->Pending++;
@@ -88,17 +116,21 @@ static int run(BACKEND *backend,ULONG rate,unsigned seconds,STATS *stats) {
     stats->Failures++;result=1;goto drain;
    }
    stats->Frames[dir]+=length/6;
-   if(dir)for(ULONG frame=0;frame<length/6;frame++) {
-    int32_t l,r;uint32_t peaks[2];
-    mbox_unpack_frame(&s->Output.Data[offset+frame*6],&l,&r);
-    peaks[0]=l<0?0u-(uint32_t)l:(uint32_t)l;
-    peaks[1]=r<0?0u-(uint32_t)r:(uint32_t)r;
-    for(unsigned c=0;c<2;c++)if(peaks[c]>stats->Peak[c])stats->Peak[c]=peaks[c];
+   if(dir) {
+    if(!mbox_fifo_write_wire(&rx,&s->Output.Data[offset],0,length)){stats->Failures++;result=1;goto drain;}
+    while(rx.count>=256) {
+     if(mbox_fifo_read_planar(&rx,left,right,256)!=256){result=1;goto drain;}
+     host_peaks(stats,left,right,256);
+    }
    }
   }
   stats->Completed[dir]++;
  }
 drain:
+ if(result==0&&rx.count) {
+  size_t tail=rx.count;
+  (void)mbox_fifo_read_planar(&rx,left,right,tail);host_peaks(stats,left,right,tail);
+ }
  /* Cancel everything first so draining one endpoint cannot delay cancelling
   * the other. Finish must wait for ownership to return, even on cancellation. */
  for(unsigned i=0;i<SLOT_COUNT;i++)if(slots[i].Active)backend->Cancel(backend,&slots[i]);
@@ -109,7 +141,7 @@ drain:
   }
  }
  while(eventCount)CloseHandle(events[--eventCount]);
- free(slots);return result;
+ free(audio);free(slots);return result;
 }
 
 typedef struct {
