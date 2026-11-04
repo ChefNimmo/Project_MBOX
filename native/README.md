@@ -81,6 +81,14 @@ This is a feasibility decision, not proof that all alternative transports are im
 
 ## Remaining work before replacement
 
+An additional user-mode backend is prepared in `kmdf/usbdk_backend.h`, using the separately installed,
+official signed UsbDk transport. `mbox_stream.exe usbdk-list <absolute-helper-DLL-path>` only enumerates;
+`usbdk-silent <absolute-helper-DLL-path> 48000 1` would temporarily redirect one validated original
+Mbox for a silent duplex diagnostic. This backend is untested on hardware. UsbDk has **not** been
+installed: its USB-class filter and host-controller reset need specific approval. See
+`research/rea-analysis/USBDK-TEST-PLAN.md` in the repository, or `research/USBDK-TEST-PLAN.md` locally.
+API headers and their Apache licence/notices are retained under `third_party/usbdk`.
+
 1. Obtain a supported driver-signing/test environment; the built `.sys` is unsigned.
 2. Validate the queued diagnostic's kernel cancellation, removal and power lifecycle on a test system.
 3. Validate silent USB transfers, sample cadence, rate control and captured data on hardware.
