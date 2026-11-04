@@ -1,0 +1,41 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=USBDevice
+ClassGuid={88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider=%Provider%
+CatalogFile=MboxResearch.cat
+DriverVer=11/04/2026,0.1.0.0
+PnpLockdown=1
+
+[Manufacturer]
+%Provider%=Models,NTamd64.10.0...22000
+[Models.NTamd64.10.0...22000]
+%Description%=MboxInstall,USB\VID_0DBA&PID_1000
+
+[DestinationDirs]
+DriverCopy=13
+[SourceDisksNames]
+1=%Disk%,,,
+[SourceDisksFiles]
+MboxResearch.sys=1
+[MboxInstall.NT]
+CopyFiles=DriverCopy
+[DriverCopy]
+MboxResearch.sys
+[MboxInstall.NT.Services]
+AddService=MboxResearch,0x00000002,MboxService
+[MboxService]
+DisplayName=%Service%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\MboxResearch.sys
+[MboxInstall.NT.Wdf]
+KmdfService=MboxResearch,MboxWdf
+[MboxWdf]
+KmdfLibraryVersion=1.15
+[Strings]
+Provider="NimBox project"
+Description="NimBox 1 USB audio device"
+Service="NimBox 1 USB audio device"
+Disk="NimBox 1 research package"

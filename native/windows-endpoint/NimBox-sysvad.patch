@@ -1,0 +1,1525 @@
+--- a/adapter.cpp
++++ b/adapter.cpp
+@@ -21,6 +21,7 @@
+ #define PUT_GUIDS_HERE
+ 
+ #include <sysvad.h>
++#include "NimBridge.h"
+ #include <ContosoKeywordDetector.h>
+ #include "IHVPrivatePropertySet.h"
+ 
+@@ -325,6 +326,7 @@
+     PAGED_CODE(); 
+ 
+     DPF(D_TERSE, ("[DriverUnload]"));
++    NimBridgeShutdown();
+ 
+     ReleaseRegistryStringBuffer();
+ 
+@@ -588,6 +590,13 @@
+     //
+     gPCDriverUnloadRoutine = DriverObject->DriverUnload;
+     DriverObject->DriverUnload = DriverUnload;
++
++    ntStatus = NimBridgeInitialize(DriverObject);
++    if (!NT_SUCCESS(ntStatus))
++    {
++        DriverUnload(DriverObject);
++        return ntStatus;
++    }
+ 
+     //
+     // All done.
+@@ -1105,8 +1114,7 @@
+         //
+         // Init infrastructure for USB Sideband devices.
+         //
+-        ntStatus = pAdapterCommon->InitUsbSideband();
+-        IF_FAILED_JUMP(ntStatus, Exit);
++        // NimBox owns only its two fixed endpoints. Never enumerate sample sideband devices.
+     }
+ #endif // SYSVAD_USB_SIDEBAND
+ 
+--- a/common.cpp
++++ b/common.cpp
+@@ -16,6 +16,7 @@
+ 
+ #include <initguid.h>
+ #include <sysvad.h>
++#include <wdmguid.h>
+ #include "hw.h"
+ #include "savedata.h"
+ #include "IHVPrivatePropertySet.h"
+--- a/EndpointsCommon/minwavert.cpp
++++ b/EndpointsCommon/minwavert.cpp
+@@ -676,6 +676,17 @@
+     GUID                        signalProcessingMode = AUDIO_SIGNALPROCESSINGMODE_DEFAULT;
+     
+     *OutStream = NULL;
++
++    // The broker currently implements exactly one stereo stream in each direction.
++    if (IsOffloadPin(Pin) || IsLoopbackPin(Pin)) return STATUS_NOT_SUPPORTED;
++    PWAVEFORMATEX nimFormat = GetWaveFormatEx(DataFormat);
++    if (!nimFormat || nimFormat->wFormatTag != WAVE_FORMAT_EXTENSIBLE ||
++        nimFormat->cbSize < sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX) ||
++        nimFormat->nChannels != 2 || nimFormat->nSamplesPerSec != 48000 ||
++        nimFormat->nBlockAlign != 8 || nimFormat->nAvgBytesPerSec != 384000 ||
++        nimFormat->wBitsPerSample != 32 ||
++        reinterpret_cast<PWAVEFORMATEXTENSIBLE>(nimFormat)->Samples.wValidBitsPerSample != 24)
++        return STATUS_NO_MATCH;
+ 
+      //
+     // If the data format attributes were specified, extract them.
+--- a/EndpointsCommon/MiniportStreamAudioEngineNode.cpp
++++ b/EndpointsCommon/MiniportStreamAudioEngineNode.cpp
+@@ -887,7 +887,7 @@
+     // Get the current time and update position.
+     //
+     KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
+-    ilQPC = KeQueryPerformanceCounter(NULL);
++    ilQPC = m_NimQpc.QuadPart ? m_NimQpc : KeQueryPerformanceCounter(NULL);
+     if (m_KsState == KSSTATE_RUN)
+     {
+         UpdatePosition(ilQPC);
+--- a/EndpointsCommon/minwavertstream.cpp
++++ b/EndpointsCommon/minwavertstream.cpp
+@@ -6,6 +6,7 @@
+ #include "minwavertstream.h"
+ #include "UnittestData.h"
+ #include "AudioModuleHelper.h"
++#include "EndpointCore.h"
+ #define MINWAVERTSTREAM_POOLTAG 'SRWM'
+ 
+ #pragma warning (disable : 4127)
+@@ -35,6 +36,11 @@
+ --*/
+ {
+     PAGED_CODE();
++    NimBridgeUnregister(this);
++    while (!IsListEmpty(&m_NotificationList)) {
++        auto entry=RemoveHeadList(&m_NotificationList);
++        ExFreePoolWithTag(CONTAINING_RECORD(entry,NotificationListEntry,ListEntry),MINWAVERTSTREAM_POOLTAG);
++    }
+     if (NULL != m_pMiniport)
+     {
+         if (m_pAudioModules)
+@@ -237,6 +243,7 @@
+     m_plVolumeLevel = NULL;
+     m_plPeakMeter = NULL;
+     m_pWfExt = NULL;
++    m_NimQpc.QuadPart = 0;
+     m_ullLinearPosition = 0;
+     m_ullPresentationPosition = 0;
+     m_ulContentId = 0;
+@@ -344,93 +351,7 @@
+         return ntStatus;
+     }
+ 
+-    if (m_bCapture)
+-    {
+-        ReadRegistrySettings();
+-            DWORD toneFrequency = 0;
+-            DWORD toneAmplitude = 0;
+-            DWORD toneDCOffset = 0;
+-            DWORD toneInitialPhase = 0;
+-
+-            double toneAmplitudeDouble = 0;
+-            double toneDCOffsetDouble = 0;
+-            double toneInitialPhaseDouble = 0;
+-
+-            if (m_pMiniport->IsLoopbackPin(Pin_))
+-            {
+-                //
+-                // Loopbacks pins use a different frequency for test validation.
+-                //
+-                toneFrequency = m_ulLoopbackCaptureToneFrequency;
+-                toneAmplitude = m_dwLoopbackCaptureToneAmplitude;
+-                toneDCOffset  = m_dwLoopbackCaptureToneDCOffset;
+-                toneInitialPhase = m_dwLoopbackCaptureToneInitialPhase;
+-            }
+-            else
+-            {
+-                //
+-                // Init sine wave generator. To exercise the SignalProcessingMode parameter
+-                // this sample driver selects the frequency based on the parameter.
+-                //
+-                toneFrequency = m_ulHostCaptureToneFrequency;
+-                toneAmplitude = m_dwHostCaptureToneAmplitude;
+-                toneDCOffset  = m_dwHostCaptureToneDCOffset;
+-                toneInitialPhase = m_dwHostCaptureToneInitialPhase;
+-            }
+-
+-            if (labs(toneAmplitude) > 100)
+-            {
+-                toneAmplitude = toneAmplitude > 0 ? 100 : -100;
+-            }
+-
+-            if (labs(toneDCOffset) > 100)
+-            {
+-                toneDCOffset = toneDCOffset > 0 ? 100 : -100;
+-            }
+-
+-            DWORD abssum = labs(toneAmplitude) + labs(toneDCOffset);
+-            
+-            if ( abssum > 100)
+-            {
+-                toneAmplitudeDouble = ((double)toneAmplitude) / abssum;
+-                toneDCOffsetDouble = ((double)toneDCOffset) / abssum;
+-            }
+-            else
+-            {
+-                toneAmplitudeDouble = ((double)toneAmplitude) / 100.0;
+-                toneDCOffsetDouble = ((double)toneDCOffset) / 100.0;
+-            }
+-
+-            if (labs(toneInitialPhase) > 31416)
+-            {
+-                toneInitialPhase = toneInitialPhase > 0 ? 31416 : -31416;
+-            }
+-
+-            toneInitialPhaseDouble = (double)toneInitialPhase / 10000;
+-
+-            ntStatus = m_ToneGenerator.Init(toneFrequency, toneAmplitudeDouble, toneDCOffsetDouble, toneInitialPhaseDouble, m_pWfExt);
+-        if (!NT_SUCCESS(ntStatus))
+-        {
+-            return ntStatus;
+-        }
+-    }
+-    else if (!g_DoNotCreateDataFiles)
+-    {
+-        //
+-        // Create an output file for the render data.
+-        //
+-        DPF(D_TERSE, ("SaveData %p", &m_SaveData));
+-        ntStatus = m_SaveData.SetDataFormat(DataFormat_);
+-        if (NT_SUCCESS(ntStatus))
+-        {
+-            ntStatus = m_SaveData.Initialize(m_pMiniport->IsOffloadPin(Pin_));
+-        }
+-    
+-        if (!NT_SUCCESS(ntStatus))
+-        {
+-            return ntStatus;
+-        }
+-    }
++    // NimBox uses USB input exclusively; no sample tone or file recorder.
+ 
+     //
+     // Register this stream.
+@@ -439,6 +360,7 @@
+     if (NT_SUCCESS(ntStatus))
+     {
+         m_bUnregisterStream = TRUE;
++        ntStatus = NimBridgeRegister(this, m_bCapture);
+     }
+ 
+     return ntStatus;
+@@ -497,14 +419,6 @@
+         // This interface is supported only on host render streams
+         *Object = PVOID(PMINIPORTWAVERTOUTPUTSTREAM(this));
+     }
+-    else if (IsEqualGUIDAligned(Interface, IID_IMiniportStreamAudioEngineNode))
+-    {
+-        *Object = (PVOID)(IMiniportStreamAudioEngineNode*)this;
+-    }
+-    else if (IsEqualGUIDAligned(Interface, IID_IMiniportStreamAudioEngineNode2))
+-    {
+-        *Object = (PVOID)(IMiniportStreamAudioEngineNode2*)this;
+-    }
+     else if (IsEqualGUIDAligned(Interface, IID_IDrmAudioStream))
+     {
+         *Object = (PVOID)(IDrmAudioStream*)this;
+@@ -535,6 +449,10 @@
+     _Out_   MEMORY_CACHING_TYPE *CacheType_
+ )
+ {
++    if(RequestedSize_<NIM_ENDPOINT_FRAMES*8 || RequestedSize_>384000 || RequestedSize_%8 ||
++       !NotificationCount_ || NotificationCount_>32 || RequestedSize_%NotificationCount_ ||
++       (RequestedSize_/NotificationCount_)%8) return STATUS_INVALID_PARAMETER;
++
+     PAGED_CODE();
+ 
+     ULONG ulBufferDurationMs = 0;
+@@ -551,19 +469,6 @@
+ 
+     RequestedSize_ -= RequestedSize_ % (m_pWfExt->Format.nBlockAlign);
+     
+-    if (!m_bCapture && !g_DoNotCreateDataFiles)
+-    {
+-        NTSTATUS ntStatus;
+-        
+-        // Sysvad uses following buffer to hold data before writing to a file.
+-        // Allocating larger buffer will reduce File I/O operations.
+-        ntStatus = m_SaveData.SetMaxWriteSize(RequestedSize_ * 4);
+-        if (!NT_SUCCESS(ntStatus))
+-        {
+-            return ntStatus;
+-        }
+-    }
+-
+     PHYSICAL_ADDRESS highAddress;
+     highAddress.HighPart = 0;
+     highAddress.LowPart = MAXULONG;
+@@ -612,25 +517,7 @@
+     _In_        ULONG   Size_
+ )
+ {
+-    UNREFERENCED_PARAMETER(Size_);
+-
+-    PAGED_CODE();
+-
+-    if (Mdl_ != NULL)
+-    {
+-        if (m_pDmaBuffer != NULL)
+-        {
+-            m_pPortStream->UnmapAllocatedPages(m_pDmaBuffer, Mdl_);
+-            m_pDmaBuffer = NULL;
+-        }
+-        
+-        m_pPortStream->FreePagesFromMdl(Mdl_);
+-    }
+-    
+-    m_ulDmaBufferSize = 0;
+-    m_ulNotificationsPerBuffer = 0;
+-
+-    return;
++    FreeAudioBuffer(Mdl_, Size_);
+ }
+ 
+ //=============================================================================
+@@ -640,41 +527,20 @@
+     _In_ PKEVENT NotificationEvent_
+ )
+ {
+-    UNREFERENCED_PARAMETER(NotificationEvent_);
+-
+     PAGED_CODE();
+-
+-    NotificationListEntry *nleNew = (NotificationListEntry*)ExAllocatePool2( 
+-        POOL_FLAG_NON_PAGED,
+-        sizeof(NotificationListEntry),
+-        MINWAVERTSTREAM_POOLTAG);
+-    if (NULL == nleNew)
+-    {
+-        return STATUS_INSUFFICIENT_RESOURCES;
+-    }
+-
+-    nleNew->NotificationEvent = NotificationEvent_;
+-
+-    // Fail if the notification event already exists in our list.
+-    if (!IsListEmpty(&m_NotificationList))
+-    {
+-        PLIST_ENTRY leCurrent = m_NotificationList.Flink;
+-        while (leCurrent != &m_NotificationList)
+-        {
+-            NotificationListEntry* nleCurrent = CONTAINING_RECORD( leCurrent, NotificationListEntry, ListEntry);
+-            if (nleCurrent->NotificationEvent == NotificationEvent_)
+-            {
+-                ExFreePoolWithTag( nleNew, MINWAVERTSTREAM_POOLTAG );
+-                return STATUS_UNSUCCESSFUL;
+-            }
+-
+-            leCurrent = leCurrent->Flink;
+-        }
+-    }
+-
+-    InsertTailList(&m_NotificationList, &(nleNew->ListEntry));
+-    
+-    return STATUS_SUCCESS;
++    if (!NotificationEvent_) return STATUS_INVALID_PARAMETER;
++    auto added=static_cast<NotificationListEntry*>(ExAllocatePool2(POOL_FLAG_NON_PAGED,sizeof(NotificationListEntry),MINWAVERTSTREAM_POOLTAG));
++    if(!added)return STATUS_INSUFFICIENT_RESOURCES;
++    added->NotificationEvent=NotificationEvent_;
++    NTSTATUS status=STATUS_SUCCESS;KIRQL irql;
++    KeAcquireSpinLock(&m_PositionSpinLock,&irql);
++    for(auto entry=m_NotificationList.Flink;entry!=&m_NotificationList;entry=entry->Flink) {
++        if(CONTAINING_RECORD(entry,NotificationListEntry,ListEntry)->NotificationEvent==NotificationEvent_) {status=STATUS_OBJECT_NAME_COLLISION;break;}
++    }
++    if(NT_SUCCESS(status))InsertTailList(&m_NotificationList,&added->ListEntry);
++    KeReleaseSpinLock(&m_PositionSpinLock,irql);
++    if(!NT_SUCCESS(status))ExFreePoolWithTag(added,MINWAVERTSTREAM_POOLTAG);
++    return status;
+ }
+ 
+ //=============================================================================
+@@ -684,28 +550,16 @@
+     _In_ PKEVENT NotificationEvent_
+ )
+ {
+-    UNREFERENCED_PARAMETER(NotificationEvent_);
+-
+     PAGED_CODE();
+-
+-    if (!IsListEmpty(&m_NotificationList))
+-    {
+-        PLIST_ENTRY leCurrent = m_NotificationList.Flink;
+-        while (leCurrent != &m_NotificationList)
+-        {
+-            NotificationListEntry* nleCurrent = CONTAINING_RECORD( leCurrent, NotificationListEntry, ListEntry);
+-            if (nleCurrent->NotificationEvent == NotificationEvent_)
+-            {
+-                RemoveEntryList( leCurrent );
+-                ExFreePoolWithTag( nleCurrent, MINWAVERTSTREAM_POOLTAG );
+-                return STATUS_SUCCESS;
+-            }
+-
+-            leCurrent = leCurrent->Flink;
+-        }
+-    }
+-
+-    return STATUS_NOT_FOUND;
++    NotificationListEntry* removed=nullptr;KIRQL irql;
++    KeAcquireSpinLock(&m_PositionSpinLock,&irql);
++    for(auto entry=m_NotificationList.Flink;entry!=&m_NotificationList;entry=entry->Flink) {
++        auto item=CONTAINING_RECORD(entry,NotificationListEntry,ListEntry);
++        if(item->NotificationEvent==NotificationEvent_) {RemoveEntryList(entry);removed=item;break;}
++    }
++    KeReleaseSpinLock(&m_PositionSpinLock,irql);
++    if(removed)ExFreePoolWithTag(removed,MINWAVERTSTREAM_POOLTAG);
++    return removed?STATUS_SUCCESS:STATUS_NOT_FOUND;
+ }
+ 
+ 
+@@ -750,7 +604,8 @@
+ 
+     Latency_->ChipsetDelay = 0;
+     Latency_->CodecDelay = 0;
+-    Latency_->FifoSize = 0;
++    // Conservative software/USB queue estimate, expressed in PCM bytes; uncalibrated.
++    Latency_->FifoSize = (m_bCapture ? 640 : 2816) * 8;
+ }
+ 
+ //=============================================================================
+@@ -765,12 +620,19 @@
+ 
+     PAGED_CODE();
+ 
++    // Remove DMA memory from the transport's view before unmapping it.
++    KIRQL nimIrql;
++    KeAcquireSpinLock(&m_PositionSpinLock, &nimIrql);
++    BYTE* nimBuffer = m_pDmaBuffer;
++    m_pDmaBuffer = NULL;
++    m_ulDmaBufferSize = 0;
++    KeReleaseSpinLock(&m_PositionSpinLock, nimIrql);
++
+     if (Mdl_ != NULL)
+     {
+-        if (m_pDmaBuffer != NULL)
++        if (nimBuffer != NULL)
+         {
+-            m_pPortStream->UnmapAllocatedPages(m_pDmaBuffer, Mdl_);
+-            m_pDmaBuffer = NULL;
++            m_pPortStream->UnmapAllocatedPages(nimBuffer, Mdl_);
+         }
+ 
+         m_pPortStream->FreePagesFromMdl(Mdl_);
+@@ -791,6 +653,9 @@
+ _Out_   MEMORY_CACHING_TYPE    *CacheType_
+ )
+ {
++    if(RequestedSize_<NIM_ENDPOINT_FRAMES*8 || RequestedSize_>384000 || RequestedSize_%8)
++        return STATUS_INVALID_PARAMETER;
++
+     PAGED_CODE();
+ 
+     if ((0 == RequestedSize_) || (RequestedSize_ < m_pWfExt->Format.nBlockAlign))
+@@ -1166,10 +1031,14 @@
+                                 m_ulCurrentWritePosition, // replace with the previous WaveRtBufferWritePosition that the driver received
+                                 State_, // replace with the correct "Data length completed"
+                                 0); // always zero
++    KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
++    KSSTATE previousState = m_KsState;
++    m_KsState = State_;
++    KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
+     switch (State_)
+     {
+         case KSSTATE_STOP:
+-            if (m_KsState == KSSTATE_ACQUIRE)
++            if (previousState == KSSTATE_ACQUIRE)
+             {
+                 // Acquire stream resources
+ #if defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND)
+@@ -1199,7 +1068,8 @@
+             m_llPacketCounter = 0;
+             m_ullPlayPosition = 0;
+             m_ullWritePosition = 0;
+-            m_ullLinearPosition = 0;
++            m_NimQpc.QuadPart = 0;
++    m_ullLinearPosition = 0;
+             m_ullPresentationPosition = 0;
+             
+             // Reset OS read/write positions
+@@ -1214,7 +1084,7 @@
+             // Wait until all work items are completed.
+             if (!m_bCapture && !g_DoNotCreateDataFiles)
+             {
+-                m_SaveData.WaitAllWorkItems();
++                /* No sample file writer exists in NimBox. */
+             }
+             break;
+ 
+@@ -1250,7 +1120,7 @@
+             
+         case KSSTATE_PAUSE:
+ 
+-            if (m_KsState > KSSTATE_PAUSE)
++            if (previousState > KSSTATE_PAUSE)
+             {
+                 //
+                 // Run -> Pause
+@@ -1350,20 +1220,16 @@
+                 // notification events only after notification interval. This timer is used by Sysvad to 
+                 // emulate hardware and send out notification event. Real hardware should not use this
+                 // timer to fire notification event as it will drain power if the timer is running at 1 msec.
+-                ExSetTimer
+-                (
+-                    m_pNotificationTimer,
+-                    (-1) * HNSTIME_PER_MILLISECOND,
+-                    HNSTIME_PER_MILLISECOND, // 1 ms 
+-                    NULL
+-                 );
++                /* NimBox: notifications originate in NimTransfer, never a simulated timer. */
+ 
+             }
+ 
+             break;
+     }
+ 
++    KeAcquireSpinLock(&m_PositionSpinLock, &oldIrql);
+     m_KsState = State_;
++    KeReleaseSpinLock(&m_PositionSpinLock, oldIrql);
+ 
+ #if defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND)
+ Done:
+@@ -1394,102 +1260,56 @@
+ 
+ //=============================================================================
+ #pragma code_seg()
++bool CMiniportWaveRTStream::NimTransfer(NimEndpointExchange* block)
++{
++    KIRQL irql;
++    KeAcquireSpinLock(&m_PositionSpinLock, &irql);
++    if (m_KsState != KSSTATE_RUN || !m_pDmaBuffer || !m_ulDmaBufferSize) {
++        KeReleaseSpinLock(&m_PositionSpinLock, irql); return false;
++    }
++    const ULONG bytes = NIM_ENDPOINT_FRAMES * 8;
++    ULONG amount = bytes;
++    if (!m_bCapture && m_bEoSReceived) {
++        if (m_bLastBufferRendered) amount=0;
++        else {
++            ULONG distance=(m_ulCurrentWritePosition + m_ulDmaBufferSize -
++                static_cast<ULONG>(m_ullWritePosition)) % m_ulDmaBufferSize;
++            amount=min(amount,distance);
++            if(amount==distance)m_bLastBufferRendered=TRUE;
++        }
++    }
++    ULONG offset=static_cast<ULONG>(m_ullWritePosition);
++    BYTE* audio=reinterpret_cast<BYTE*>(m_bCapture ? block->Capture : block->Render);
++    offset=nimRingTransfer(m_pDmaBuffer,m_ulDmaBufferSize,offset,audio,amount,m_bCapture!=FALSE);
++    m_ullPlayPosition=m_ullWritePosition=offset;
++    m_ullLinearPosition+=amount;
++    m_ullPresentationPosition+=bytes;
++    LARGE_INTEGER qpc=KeQueryPerformanceCounter(NULL);
++    m_NimQpc=qpc;
++    m_ullDmaTimeStamp=KSCONVERT_PERFORMANCE_TIME(m_ullPerformanceCounterFrequency.QuadPart,qpc);
++    bool notify=m_bLastBufferRendered!=FALSE;
++    if(m_ulNotificationsPerBuffer) {
++        ULONG packet=m_ulDmaBufferSize/m_ulNotificationsPerBuffer;
++        LONGLONG completed=static_cast<LONGLONG>(m_ullLinearPosition/packet);
++        notify=notify || completed!=m_llPacketCounter;
++        m_llPacketCounter=completed;
++    }
++    if(notify) {
++        for(auto entry=m_NotificationList.Flink;entry!=&m_NotificationList;entry=entry->Flink) {
++            auto item=CONTAINING_RECORD(entry,NotificationListEntry,ListEntry);
++            KeSetEvent(item->NotificationEvent,IO_NO_INCREMENT,FALSE);
++        }
++    }
++    KeReleaseSpinLock(&m_PositionSpinLock,irql); return true;
++}
++
+ VOID CMiniportWaveRTStream::UpdatePosition
+ (
+     _In_ LARGE_INTEGER ilQPC
+ )
+ {
+-    // Convert ticks to 100ns units.
+-    LONGLONG  hnsCurrentTime = KSCONVERT_PERFORMANCE_TIME(m_ullPerformanceCounterFrequency.QuadPart, ilQPC);
+-    
+-    // Calculate the time elapsed since the last call to GetPosition() or since the
+-    // DMA engine started.  Note that the division by 10000 to convert to milliseconds
+-    // may cause us to lose some of the time, so we will carry the remainder forward 
+-    // to the next GetPosition() call.
+-    //
+-    ULONG TimeElapsedInMS = (ULONG)(hnsCurrentTime - m_ullDmaTimeStamp + m_hnsElapsedTimeCarryForward)/10000;
+-    
+-    // Carry forward the remainder of this division so we don't fall behind with our position too much.
+-    //
+-    m_hnsElapsedTimeCarryForward = (hnsCurrentTime - m_ullDmaTimeStamp + m_hnsElapsedTimeCarryForward) % 10000;
+-    
+-    // Calculate how many bytes in the DMA buffer would have been processed in the elapsed
+-    // time.  Note that the division by 1000 to convert to milliseconds may cause us to 
+-    // lose some bytes, so we will carry the remainder forward to the next GetPosition() call.
+-    //
+-    // need to divide by 1000 because m_ulDmaMovementRate is average bytes per sec.
+-
+-    ULONG ByteDisplacement = ((m_ulDmaMovementRate * TimeElapsedInMS) + m_byteDisplacementCarryForward) / 1000 ;
+-    m_byteDisplacementCarryForward = ((m_ulDmaMovementRate * TimeElapsedInMS) + m_byteDisplacementCarryForward) % 1000;
+-
+-    // Increment presentation position even after last buffer is rendered.
+-    m_ullPresentationPosition += ByteDisplacement;
+-
+-    if (m_bCapture)
+-    {
+-        // Write sine wave to buffer.
+-        WriteBytes(ByteDisplacement);
+-    }
+-    else
+-    {
+-        if (m_bEoSReceived)
+-        {
+-            // since EoS flag is set, we'll need to make sure not to read data beyond EOS position.
+-            // If driver's current position is less than EoS position, then make sure not to read data beyond EoS.
+-            if (m_ullWritePosition <= m_ulCurrentWritePosition)
+-            {
+-                ByteDisplacement = min(ByteDisplacement, m_ulCurrentWritePosition - (ULONG)m_ullWritePosition);
+-            }
+-            // If our current position is ahead of EoS position and we'll wrap around after new position then adjust
+-            // new position if it crosses EoS.
+-            else if ((m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize < m_ullWritePosition)
+-            {
+-                if ((m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize > m_ulCurrentWritePosition)
+-                {
+-                    ByteDisplacement = ByteDisplacement - (((ULONG)m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize - m_ulCurrentWritePosition);
+-                }
+-            }
+-        }
+-
+-        // If the last packet was rendered(read in the sample driver's case), send out an etw event.
+-        if ( m_bEoSReceived && !m_bLastBufferRendered
+-            && (m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize == m_ulCurrentWritePosition)
+-        {
+-            m_bLastBufferRendered = TRUE;
+-            PADAPTERCOMMON pAdapterComm = m_pMiniport->GetAdapterCommObj();
+-            //Event type : eMINIPORT_LAST_BUFFER_RENDERED
+-            //Parameter 1 : Current linear buffer position
+-            //Parameter 2 : the very last WaveRtBufferWritePosition that the driver received
+-            //Parameter 3 : 0
+-            //Parameter 4 : 0
+-            pAdapterComm->WriteEtwEvent(eMINIPORT_LAST_BUFFER_RENDERED,
+-                                        m_ullLinearPosition + ByteDisplacement, // Current linear buffer position  
+-                                        m_ulCurrentWritePosition, // The very last WaveRtBufferWritePosition that the driver received
+-                                        0,
+-                                        0);
+-        }
+-
+-        if (!g_DoNotCreateDataFiles)
+-        {
+-            // Read from buffer and write to a file.
+-            ReadBytes(ByteDisplacement);
+-        }
+-    }
+-    
+-    // Increment the DMA position by the number of bytes displaced since the last
+-    // call to UpdatePosition() and ensure we properly wrap at buffer length.
+-    //
+-    m_ullPlayPosition = m_ullWritePosition =
+-        (m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize;
+-    
+-    // m_ullDmaTimeStamp is updated in both GetPostion and GetLinearPosition calls
+-    // so m_ullLinearPosition needs to be updated accordingly here
+-    //
+-    m_ullLinearPosition += ByteDisplacement;
+-    
+-    // Update the DMA time stamp for the next call to GetPosition()
+-    //
+-    m_ullDmaTimeStamp = hnsCurrentTime;
++    // USB exchange is the sole clock authority. Queries never advance DMA.
++    UNREFERENCED_PARAMETER(ilQPC);
+ }
+ 
+ //=============================================================================
+@@ -1509,17 +1329,7 @@
+ 
+ --*/
+ {
+-    ULONG bufferOffset = m_ullLinearPosition % m_ulDmaBufferSize;
+-
+-    // Normally this will loop no more than once for a single wrap, but if
+-    // many bytes have been displaced then this may loops many times.
+-    while (ByteDisplacement > 0)
+-    {
+-        ULONG runWrite = min(ByteDisplacement, m_ulDmaBufferSize - bufferOffset);
+-            m_ToneGenerator.GenerateSine(m_pDmaBuffer + bufferOffset, runWrite);
+-        bufferOffset = (bufferOffset + runWrite) % m_ulDmaBufferSize;
+-        ByteDisplacement -= runWrite;
+-    }
++    UNREFERENCED_PARAMETER(ByteDisplacement); // Sample sine generator disabled.
+ }
+ 
+ //=============================================================================
+@@ -1540,17 +1350,7 @@
+ 
+ --*/
+ {
+-    ULONG bufferOffset = m_ullLinearPosition % m_ulDmaBufferSize;
+-
+-    // Normally this will loop no more than once for a single wrap, but if
+-    // many bytes have been displaced then this may loops many times.
+-    while (ByteDisplacement > 0)
+-    {
+-        ULONG runWrite = min(ByteDisplacement, m_ulDmaBufferSize - bufferOffset);
+-        m_SaveData.WriteData(m_pDmaBuffer + bufferOffset, runWrite);
+-        bufferOffset = (bufferOffset + runWrite) % m_ulDmaBufferSize;
+-        ByteDisplacement -= runWrite;
+-    }
++    UNREFERENCED_PARAMETER(ByteDisplacement); // Sample file recorder disabled.
+ }
+ 
+ //=============================================================================
+@@ -1605,7 +1405,7 @@
+     // SYSVAD writes each stream seperately to disk. If the rights for this
+     // stream indicates that the stream is CopyProtected, stop writing to disk.
+     //
+-    m_SaveData.Disable(drmRights->CopyProtect);
++    UNREFERENCED_PARAMETER(drmRights);
+ 
+     //
+     // From MSDN:
+@@ -1733,125 +1533,9 @@
+     _In_opt_  PVOID        DeferredContext
+ )
+ {
+-    LARGE_INTEGER qpc;
+-    LARGE_INTEGER qpcFrequency;
+-    BOOL bufferCompleted = FALSE;
+-
+     UNREFERENCED_PARAMETER(Timer);
+-
+-    _IRQL_limited_to_(DISPATCH_LEVEL);
+-
+-    CMiniportWaveRTStream* _this = (CMiniportWaveRTStream*)DeferredContext;
+-    
+-    if (NULL == _this)
+-    {
+-        return;
+-    }
+-
+-    KIRQL oldIrql;
+-    KeAcquireSpinLock(&_this->m_PositionSpinLock, &oldIrql);
+-
+-    qpc = KeQueryPerformanceCounter(&qpcFrequency);
+-
+-    // Convert ticks to 100ns units.
+-    LONGLONG  hnsCurrentTime = KSCONVERT_PERFORMANCE_TIME(_this->m_ullPerformanceCounterFrequency.QuadPart, qpc);
+-
+-    // Calculate the time elapsed since the last we ran DPC that matched Notification interval. Note that the division by 10000 
+-    // to convert to milliseconds may cause us to lose some of the time, so we will carry the remainder forward.
+-
+-    ULONG TimeElapsedInMS = (ULONG)(hnsCurrentTime - _this->m_ullLastDPCTimeStamp + _this->m_hnsDPCTimeCarryForward)/10000;
+-
+-    if (TimeElapsedInMS >= _this->m_ulNotificationIntervalMs)
+-    {
+-        // Carry forward the time greater than notification interval to adjust time to signal next buffer completion event accordingly.
+-        _this->m_hnsDPCTimeCarryForward = hnsCurrentTime - _this->m_ullLastDPCTimeStamp + _this->m_hnsDPCTimeCarryForward - (_this->m_ulNotificationIntervalMs * 10000);
+-        // Save the last time DPC ran at notification interval
+-        _this->m_ullLastDPCTimeStamp = hnsCurrentTime;
+-        bufferCompleted = TRUE;
+-    }
+-
+-    if (!bufferCompleted && !_this->m_bEoSReceived)
+-    {
+-        goto End;
+-    }
+-
+-    _this->UpdatePosition(qpc);
+-
+-    if (!_this->m_bEoSReceived)
+-    {
+-        _this->m_llPacketCounter++;
+-    }
+-
+-#if defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND)
+-    if (_this->m_SidebandStarted)
+-    {
+-        if (!NT_SUCCESS(_this->GetSidebandStreamNtStatus()))
+-        {
+-            goto End;
+-        }
+-    }
+-#endif  //defined(SYSVAD_BTH_BYPASS) || defined(SYSVAD_USB_SIDEBAND)
+-
+-    _this->m_pMiniport->DpcRoutine(qpc.QuadPart, qpcFrequency.QuadPart);
+-
+-    if (_this->m_KsState != KSSTATE_RUN)
+-    {
+-        goto End;
+-    }
+-    
+-    PADAPTERCOMMON  pAdapterComm = _this->m_pMiniport->GetAdapterCommObj();
+-
+-    // Simple buffer underrun detection.
+-    if (!_this->IsCurrentWaveRTWritePositionUpdated() && !_this->m_bEoSReceived)
+-    {
+-        //Event type: eMINIPORT_GLITCH_REPORT
+-        //Parameter 1: Current linear buffer position 
+-        //Parameter 2: Previous WaveRtBufferWritePosition that the driver received 
+-        //Parameter 3: Major glitch code: 1:WaveRT buffer is underrun
+-        //Parameter 4: Minor code for the glitch cause
+-        pAdapterComm->WriteEtwEvent(eMINIPORT_GLITCH_REPORT, 
+-                                    _this->m_ullLinearPosition,
+-                                    _this->GetCurrentWaveRTWritePosition(),
+-                                    1,      // WaveRT buffer is underrun
+-                                    0); 
+-    }
+-
+-    // Send buffer completion event if either of the following is true
+-    // 1. Driver consumed a complete buffer for this stream
+-    // 2. Driver consumed a partial buffer containing EoS for this stream
+-
+-    if (!IsListEmpty(&_this->m_NotificationList) && 
+-        (bufferCompleted || _this->m_bLastBufferRendered))
+-    {
+-        PLIST_ENTRY leCurrent = _this->m_NotificationList.Flink;
+-        while (leCurrent != &_this->m_NotificationList)
+-        {
+-            NotificationListEntry* nleCurrent = CONTAINING_RECORD( leCurrent, NotificationListEntry, ListEntry);
+-            //Event type: eMINIPORT_BUFFER_COMPLETE
+-            //Parameter 1: Current linear buffer position
+-            //Parameter 2: Previous WaveRtBufferWritePosition that the driver received
+-            //Parameter 3: Data length completed
+-            //Parameter 4: 0
+-            pAdapterComm->WriteEtwEvent(eMINIPORT_BUFFER_COMPLETE,
+-                                        _this->m_ullLinearPosition,
+-                                        _this->GetCurrentWaveRTWritePosition(),
+-                                        _this->m_ulDmaBufferSize/_this->m_ulNotificationsPerBuffer, // replace with the correct "Data length completed"
+-                                        0); // always zero
+-            KeSetEvent(nleCurrent->NotificationEvent, 0, 0);
+-
+-            leCurrent = leCurrent->Flink;
+-        }
+-    }
+-
+-    if (_this->m_bLastBufferRendered)
+-    {
+-        ExCancelTimer(_this->m_pNotificationTimer, NULL);
+-    }
+-
+-End:
+-    KeReleaseSpinLock(&_this->m_PositionSpinLock, oldIrql);
+-    return;
+-}
+-//=============================================================================
+-
+-
++    UNREFERENCED_PARAMETER(DeferredContext); // USB completion signals events.
++}
++//=============================================================================
++
++
+--- a/EndpointsCommon/minwavertstream.h
++++ b/EndpointsCommon/minwavertstream.h
+@@ -17,6 +17,7 @@
+ 
+ #include "savedata.h"
+ #include "tonegenerator.h"
++#include "NimBridge.h"
+ 
+ 
+ //
+@@ -62,6 +63,8 @@
+     LONG                        m_IsCurrentWritePositionUpdated;
+     
+ public:
++    // Called with bridge lifetime lock held; never accesses pageable code.
++    bool NimTransfer(NimEndpointExchange* block);
+     DECLARE_STD_UNKNOWN();
+     DEFINE_STD_CONSTRUCTOR(CMiniportWaveRTStream);
+     ~CMiniportWaveRTStream();
+@@ -125,6 +128,7 @@
+     BOOLEAN                     m_bEoSReceived;
+     BOOLEAN                     m_bLastBufferRendered;
+     KSPIN_LOCK                  m_PositionSpinLock;
++    LARGE_INTEGER              m_NimQpc;
+     AUDIOMODULE *               m_pAudioModules;
+     ULONG                       m_AudioModuleCount;
+     // Member variable as config params for tone generator
+--- a/EndpointsCommon/speakerwavtable.h
++++ b/EndpointsCommon/speakerwavtable.h
+@@ -19,20 +19,20 @@
+ #include "AudioModule0.h"
+ #include "AudioModule1.h"
+ 
+-// To keep the code simple assume device supports only 48KHz, 16-bit, stereo (PCM and NON-PCM)
++// NimBox first endpoint transport: 48 kHz stereo, 24 valid bits in 32-bit PCM.
+ 
+ #define SPEAKER_DEVICE_MAX_CHANNELS                 2       // Max Channels.
+ 
+ #define SPEAKER_HOST_MAX_CHANNELS                   2       // Max Channels.
+-#define SPEAKER_HOST_MIN_BITS_PER_SAMPLE            16      // Min Bits Per Sample
+-#define SPEAKER_HOST_MAX_BITS_PER_SAMPLE            16      // Max Bits Per Sample
+-#define SPEAKER_HOST_MIN_SAMPLE_RATE                24000   // Min Sample Rate
+-#define SPEAKER_HOST_MAX_SAMPLE_RATE                96000   // Max Sample Rate
++#define SPEAKER_HOST_MIN_BITS_PER_SAMPLE            32      // Min Bits Per Sample
++#define SPEAKER_HOST_MAX_BITS_PER_SAMPLE            32      // Max Bits Per Sample
++#define SPEAKER_HOST_MIN_SAMPLE_RATE                48000   // Min Sample Rate
++#define SPEAKER_HOST_MAX_SAMPLE_RATE                48000   // Max Sample Rate
+ 
+ #define SPEAKER_OFFLOAD_MAX_CHANNELS                2       // Max Channels.
+-#define SPEAKER_OFFLOAD_MIN_BITS_PER_SAMPLE         16      // Min Bits Per Sample
+-#define SPEAKER_OFFLOAD_MAX_BITS_PER_SAMPLE         16      // Max Bits Per Sample
+-#define SPEAKER_OFFLOAD_MIN_SAMPLE_RATE             44100   // Min Sample Rate
++#define SPEAKER_OFFLOAD_MIN_BITS_PER_SAMPLE         32      // Min Bits Per Sample
++#define SPEAKER_OFFLOAD_MAX_BITS_PER_SAMPLE         32      // Max Bits Per Sample
++#define SPEAKER_OFFLOAD_MIN_SAMPLE_RATE             48000   // Min Sample Rate
+ #define SPEAKER_OFFLOAD_MAX_SAMPLE_RATE             48000   // Max Sample Rate
+ 
+ #define SPEAKER_LOOPBACK_MAX_CHANNELS               SPEAKER_HOST_MAX_CHANNELS          // Must be equal to host pin's Max Channels.
+@@ -50,9 +50,9 @@
+ //
+ // Max # of pin instances.
+ //
+-#define SPEAKER_MAX_INPUT_SYSTEM_STREAMS            6
+-#define SPEAKER_MAX_INPUT_OFFLOAD_STREAMS           MAX_INPUT_OFFLOAD_STREAMS
+-#define SPEAKER_MAX_OUTPUT_LOOPBACK_STREAMS         MAX_OUTPUT_LOOPBACK_STREAMS
++#define SPEAKER_MAX_INPUT_SYSTEM_STREAMS            1
++#define SPEAKER_MAX_INPUT_OFFLOAD_STREAMS           0
++#define SPEAKER_MAX_OUTPUT_LOOPBACK_STREAMS         0
+ 
+ //=============================================================================
+ static 
+@@ -71,14 +71,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                44100,
+-                176400,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -96,14 +92,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                24000,
+-                96000,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -121,14 +113,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                48000,
+-                192000,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -146,14 +134,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                88200,
+-                352800,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -171,14 +155,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                96000,
+-                384000,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -201,11 +181,7 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                24000,
+-                96000,
+-                4,
+-                16,
++                2, 48000, 384000, 8, 32,
+                 sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX)
+             },
+             16,
+@@ -226,11 +202,7 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                32000,
+-                128000,
+-                4,
+-                16,
++                2, 48000, 384000, 8, 32,
+                 sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX)
+             },
+             16,
+@@ -251,11 +223,7 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                44100,
+-                176400,
+-                4,
+-                16,
++                2, 48000, 384000, 8, 32,
+                 sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX)
+             },
+             16,
+@@ -276,14 +244,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                48000,
+-                192000,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -301,14 +265,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                88200,
+-                352800,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -326,14 +286,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                96000,
+-                384000,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -356,14 +312,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                44100,
+-                176400,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -381,14 +333,10 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                2,
+-                48000,
+-                192000,
+-                4,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
+             KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+@@ -756,10 +704,7 @@
+ static
+ PCCONNECTION_DESCRIPTOR SpeakerWaveMiniportConnections[] =
+ {
+-    { PCFILTER_NODE,            KSPIN_WAVE_RENDER_SINK_SYSTEM,     KSNODE_WAVE_AUDIO_ENGINE,   1 },
+-    { PCFILTER_NODE,            KSPIN_WAVE_RENDER_SINK_OFFLOAD,    KSNODE_WAVE_AUDIO_ENGINE,   2 },
+-    { KSNODE_WAVE_AUDIO_ENGINE, 3,                                 PCFILTER_NODE,              KSPIN_WAVE_RENDER_SINK_LOOPBACK },
+-    { KSNODE_WAVE_AUDIO_ENGINE, 0,                                 PCFILTER_NODE,              KSPIN_WAVE_RENDER_SOURCE },
++    { PCFILTER_NODE, KSPIN_WAVE_RENDER_SINK_SYSTEM, PCFILTER_NODE, KSPIN_WAVE_RENDER_SOURCE },
+ };
+ 
+ //=============================================================================
+@@ -873,8 +818,8 @@
+     SIZEOF_ARRAY(SpeakerWaveMiniportPins),          // PinCount
+     SpeakerWaveMiniportPins,                        // Pins
+     sizeof(PCNODE_DESCRIPTOR),                      // NodeSize
+-    SIZEOF_ARRAY(SpeakerWaveMiniportNodes),         // NodeCount
+-    SpeakerWaveMiniportNodes,                       // Nodes
++    0,                                            // NodeCount
++    NULL,                                          // Nodes
+     SIZEOF_ARRAY(SpeakerWaveMiniportConnections),   // ConnectionCount
+     SpeakerWaveMiniportConnections,                 // Connections
+     0,                                              // CategoryCount
+--- a/TabletAudioSample/micintoptable.h
++++ b/TabletAudioSample/micintoptable.h
+@@ -30,7 +30,7 @@
+ static
+ KSJACK_DESCRIPTION MicInJackDesc =
+ {
+-    KSAUDIO_SPEAKER_MONO,
++    KSAUDIO_SPEAKER_STEREO,
+     JACKDESC_RGB(179, 201, 140),
+     eConnTypeCombination,
+     eGeoLocRear,
+@@ -200,11 +200,7 @@
+ static
+ PCCONNECTION_DESCRIPTOR MicInMiniportConnections[] =
+ {
+-    //  FromNode,                 FromPin,                    ToNode,                 ToPin
+-    {   PCFILTER_NODE,            KSPIN_TOPO_MIC_ELEMENTS,    KSNODE_TOPO_VOLUME,     1 },
+-    {   KSNODE_TOPO_VOLUME,       0,                          KSNODE_TOPO_MUTE,       1 },
+-    {   KSNODE_TOPO_MUTE,         0,                          KSNODE_TOPO_PEAKMETER,  1 },
+-    {   KSNODE_TOPO_PEAKMETER,    0,                          PCFILTER_NODE,          KSPIN_TOPO_BRIDGE }
++    { PCFILTER_NODE, KSPIN_TOPO_MIC_ELEMENTS, PCFILTER_NODE, KSPIN_TOPO_BRIDGE },
+ };
+ 
+ 
+@@ -238,8 +234,8 @@
+   SIZEOF_ARRAY(MicInTopoMiniportPins),      // PinCount
+   MicInTopoMiniportPins,                    // Pins
+   sizeof(PCNODE_DESCRIPTOR),                // NodeSize
+-  SIZEOF_ARRAY(MicInTopologyNodes),         // NodeCount
+-  MicInTopologyNodes,                       // Nodes
++  0,                                      // NodeCount
++  NULL,                                    // Nodes
+   SIZEOF_ARRAY(MicInMiniportConnections),   // ConnectionCount
+   MicInMiniportConnections,                 // Connections
+   0,                                        // CategoryCount
+@@ -248,3 +244,4 @@
+ 
+ #endif // _SYSVAD_MICINTOPTABLE_H_
+ 
++
+--- a/TabletAudioSample/micinwavtable.h
++++ b/TabletAudioSample/micinwavtable.h
+@@ -18,16 +18,16 @@
+ //
+ // Mic in (external: headphone) range.
+ //
+-#define MICIN_DEVICE_MAX_CHANNELS           1       // Max Channels.
+-#define MICIN_MIN_BITS_PER_SAMPLE_PCM       16      // Min Bits Per Sample
+-#define MICIN_MAX_BITS_PER_SAMPLE_PCM       16      // Max Bits Per Sample
+-#define MICIN_MIN_SAMPLE_RATE               8000    // Min Sample Rate
++#define MICIN_DEVICE_MAX_CHANNELS           2       // Max Channels.
++#define MICIN_MIN_BITS_PER_SAMPLE_PCM       32      // Min Bits Per Sample
++#define MICIN_MAX_BITS_PER_SAMPLE_PCM       32      // Max Bits Per Sample
++#define MICIN_MIN_SAMPLE_RATE               48000    // Min Sample Rate
+ #define MICIN_MAX_SAMPLE_RATE               48000   // Max Sample Rate
+ 
+ //
+ // Max # of pin instances.
+ //
+-#define MICIN_MAX_INPUT_STREAMS             5
++#define MICIN_MAX_INPUT_STREAMS             1
+ 
+ //=============================================================================
+ static 
+@@ -46,115 +46,95 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                8000,
+-                16000,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
++            KSAUDIO_SPEAKER_STEREO,
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
++        }
++    },
++    { // 1
++        {
++            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
++            0,
++            0,
++            0,
++            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
++            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
++        },
++        {
++            {
++                WAVE_FORMAT_EXTENSIBLE,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
++            KSAUDIO_SPEAKER_STEREO,
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
++        }
++    },
++    { // 2
++        {
++            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
++            0,
++            0,
++            0,
++            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
++            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
++        },
++        {
++            {
++                WAVE_FORMAT_EXTENSIBLE,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
++            KSAUDIO_SPEAKER_STEREO,
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
++        }
++    },
++    { // 3
++        {
++            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
++            0,
++            0,
++            0,
++            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
++            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
++        },
++        {
++            {
++                WAVE_FORMAT_EXTENSIBLE,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
++            KSAUDIO_SPEAKER_STEREO,
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
++        }
++    },
++    { // 4
++        {
++            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
++            0,
++            0,
++            0,
++            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
++            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
++            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
++        },
++        {
++            {
++                WAVE_FORMAT_EXTENSIBLE,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX)
+             },
+             16,
+-            KSAUDIO_SPEAKER_MONO,
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+-        }
+-    },
+-    { // 1
+-        {
+-            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
+-            0,
+-            0,
+-            0,
+-            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
+-            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
+-        },
+-        {
+-            {
+-                WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                11025,
+-                22050,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
+-            KSAUDIO_SPEAKER_MONO,
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+-        }
+-    },
+-    { // 2
+-        {
+-            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
+-            0,
+-            0,
+-            0,
+-            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
+-            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
+-        },
+-        {
+-            {
+-                WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                16000,
+-                32000,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
+-            KSAUDIO_SPEAKER_MONO,
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+-        }
+-    },
+-    { // 3
+-        {
+-            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
+-            0,
+-            0,
+-            0,
+-            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
+-            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
+-        },
+-        {
+-            {
+-                WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                22050,
+-                44100,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
+-            KSAUDIO_SPEAKER_MONO,
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+-        }
+-    },
+-    { // 4
+-        {
+-            sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE),
+-            0,
+-            0,
+-            0,
+-            STATICGUIDOF(KSDATAFORMAT_TYPE_AUDIO),
+-            STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM),
+-            STATICGUIDOF(KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)
+-        },
+-        {
+-            {
+-                WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                24000,
+-                48000,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX)
+-            },
+-            16,
+-            KSAUDIO_SPEAKER_MONO,
++            KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+     },
+@@ -171,15 +151,11 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                32000,
+-                64000,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
+-            KSAUDIO_SPEAKER_MONO,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
++            KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+     },
+@@ -196,15 +172,11 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                44100,
+-                88200,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
+-            KSAUDIO_SPEAKER_MONO,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
++            KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+     },
+@@ -221,15 +193,11 @@
+         {
+             {
+                 WAVE_FORMAT_EXTENSIBLE,
+-                1,
+-                48000,
+-                96000,
+-                2,
+-                16,
+-                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
+-            },
+-            16,
+-            KSAUDIO_SPEAKER_MONO,
++                2, 48000, 384000, 8, 32,
++                sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)
++            },
++            24,
++            KSAUDIO_SPEAKER_STEREO,
+             STATICGUIDOF(KSDATAFORMAT_SUBTYPE_PCM)
+         }
+     }
+--- a/TabletAudioSample/minipairs.h
++++ b/TabletAudioSample/minipairs.h
+@@ -180,10 +180,8 @@
+     SIZEOF_ARRAY(SpeakerPinDeviceFormatsAndModes),
+     SpeakerTopologyPhysicalConnections,
+     SIZEOF_ARRAY(SpeakerTopologyPhysicalConnections),
+-    ENDPOINT_OFFLOAD_SUPPORTED,
+-    SpeakerModulesWaveFilter, 
+-    SIZEOF_ARRAY(SpeakerModulesWaveFilter),
+-    &SpeakerModuleNotificationDeviceId,
++    ENDPOINT_NO_FLAGS,
++    NULL, 0, NULL,
+ };
+ 
+ /*********************************************************************
+@@ -227,7 +225,7 @@
+     SIZEOF_ARRAY(SpeakerHpPinDeviceFormatsAndModes),
+     SpeakerHpTopologyPhysicalConnections,
+     SIZEOF_ARRAY(SpeakerHpTopologyPhysicalConnections),
+-    ENDPOINT_OFFLOAD_SUPPORTED,
++    ENDPOINT_NO_FLAGS,
+     SpeakerHpModulesWaveFilter, 
+     SIZEOF_ARRAY(SpeakerHpModulesWaveFilter),
+     &SpeakerHpModuleNotificationDeviceId,
+@@ -320,7 +318,7 @@
+     SIZEOF_ARRAY(SpdifPinDeviceFormatsAndModes),
+     SpdifTopologyPhysicalConnections,
+     SIZEOF_ARRAY(SpdifTopologyPhysicalConnections),
+-    ENDPOINT_OFFLOAD_SUPPORTED,
++    ENDPOINT_NO_FLAGS,
+     NULL, 0, NULL,                                          // audio module settings.
+ };
+ 
+@@ -510,9 +508,6 @@
+ PENDPOINT_MINIPAIR  g_RenderEndpoints[] = 
+ {
+     &SpeakerMiniports,
+-    &SpeakerHpMiniports,
+-    &HdmiMiniports,
+-    &SpdifMiniports,
+ };
+ 
+ #define g_cRenderEndpoints  (SIZEOF_ARRAY(g_RenderEndpoints))
+@@ -525,9 +520,6 @@
+ PENDPOINT_MINIPAIR  g_CaptureEndpoints[] = 
+ {
+     &MicInMiniports,
+-    &MicArray1Miniports,
+-    &MicArray2Miniports,
+-    &MicArray3Miniports,
+ };
+ 
+ #define g_cCaptureEndpoints (SIZEOF_ARRAY(g_CaptureEndpoints))

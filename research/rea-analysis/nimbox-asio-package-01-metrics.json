@@ -1,0 +1,46 @@
+[
+  {
+    "File": "nimbox-asio-installed-registration.txt",
+    "Output": "Registered CoCreateInstance=00000000\r\nNimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=2810, bad callbacks=0, IN/OUT frames=719609/719609, underruns=0, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -84.72 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -84.43 dBFS (includes startup mute)\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-installed-tone-final.txt",
+    "Output": "Registered CoCreateInstance=00000000\r\nNimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nFive-second -40 dBFS tone enabled, then silence.\r\ncallbacks=2812, bad callbacks=0, IN/OUT frames=719993/719993, underruns=0, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -84.67 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -84.40 dBFS (includes startup mute)\r\nRestart: callbacks=370, bad=0, underruns=0, overflows=0, USB error=0\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-live-44k-legacy.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 44100 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=2585, bad callbacks=0, IN/OUT frames=661842/661842, underruns=0, overflows=0, muted=441088, USB error=0\r\nChannel 1 delivered RMS -84.27 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -83.82 dBFS (includes startup mute)\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-live-48k-01.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=2812, bad callbacks=0, IN/OUT frames=719993/719993, underruns=127, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -83.10 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -84.10 dBFS (includes startup mute)\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-live-48k-02.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=2813, bad callbacks=0, IN/OUT frames=720378/720378, underruns=127, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -84.73 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -84.60 dBFS (includes startup mute)\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-live-48k-03.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=2812, bad callbacks=0, IN/OUT frames=719993/719993, underruns=0, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -85.12 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -84.79 dBFS (includes startup mute)\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-live-48k-60s.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=11249, bad callbacks=0, IN/OUT frames=2879971/2879971, underruns=0, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -89.02 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -89.99 dBFS (includes startup mute)\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-release-installed-final.txt",
+    "Output": "Registered CoCreateInstance=00000000\r\nNimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=2813, bad callbacks=0, IN/OUT frames=720377/720377, underruns=0, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -84.90 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -84.78 dBFS (includes startup mute)\r\nRestart: callbacks=368, bad=0, underruns=0, overflows=0, USB error=0\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-restart-01.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=374, bad callbacks=0, IN/OUT frames=95999/95999, underruns=0, overflows=0, muted=95744, USB error=0\r\nChannel 1 delivered RMS -300.00 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -300.00 dBFS (includes startup mute)\r\nImmediate ASIO restart failed.\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\nExpected exactly one target; found 0. No device redirected.\r\n"
+  },
+  {
+    "File": "nimbox-asio-restart-02.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=2810, bad callbacks=0, IN/OUT frames=719609/719609, underruns=0, overflows=0, muted=480000, USB error=0\r\nChannel 1 delivered RMS -84.78 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -84.48 dBFS (includes startup mute)\r\nRestart: callbacks=372, bad=0, underruns=0, overflows=0, USB error=0\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  },
+  {
+    "File": "nimbox-asio-thread-lifecycle-final.txt",
+    "Output": "NimBox 1 USB audio device: 2 in / 2 out, 48000 Hz, 256 frames\r\nSilent ASIO stream started.\r\ncallbacks=375, bad callbacks=0, IN/OUT frames=96000/96000, underruns=0, overflows=0, muted=96000, USB error=0\r\nChannel 1 delivered RMS -300.00 dBFS (includes startup mute)\r\nChannel 2 delivered RMS -300.00 dBFS (includes startup mute)\r\nRestart: callbacks=370, bad=0, underruns=0, overflows=0, USB error=0\r\nOriginal Mbox found: revision 0020, speed 2\r\nEnumeration only: no device detached or configured.\r\nOriginal Mbox found: revision 0020, speed 2\r\nUsbDk SET rate EP 02: OK\r\nUsbDk GET rate EP 02: OK\r\nUsbDk SET rate EP 81: OK\r\nUsbDk GET rate EP 81: OK\r\n"
+  }
+]

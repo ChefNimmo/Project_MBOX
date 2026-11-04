@@ -1,0 +1,20 @@
+NimBox 1 ASIO 0.1.0
+
+NimBox ASIO frontend and the linked NimBox-authored core/transport components in this distribution:
+GPL version 3. See COPYING and the included corresponding-source archive.
+This licence scope does not relicense historical research documents, original vendor downloads,
+or the separate experimental kernel prototype.
+
+Steinberg ASIO SDK 2.3.4, downloaded from Steinberg's official SDK distribution.
+Copyright 2025 Steinberg Media Technologies GmbH. Used under its GPLv3 option.
+Original SDK licence text and source-header notices are retained in the source archive.
+ASIO is a registered trademark of Steinberg Media Technologies GmbH.
+No Steinberg endorsement or proprietary licensing agreement is claimed.
+
+UsbDk 1.0.22: Copyright Red Hat, Inc.; developed by Daynix Computing LTD.
+Apache License 2.0. The official signed runtime MSI and x64 helper are redistributed unmodified.
+See UsbDk-LICENSE.txt and the source archive's third_party/usbdk notices.
+API header C-compatibility modifications are documented in its NOTICE.md.
+
+Installer generated using Inno Setup, copyright Jordan Russell and Martijn Laan.
+https://jrsoftware.org/

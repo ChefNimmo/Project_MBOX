@@ -1,0 +1,21 @@
+{
+  "Product": "NimBox 1 USB audio device",
+  "Version": "0.1.0",
+  "DateSydney": "2026-11-04",
+  "Architecture": "Windows 11 AMD64",
+  "FrontendLicense": "GPL-3.0-only",
+  "InstallerSignature": "Unsigned",
+  "KernelTransport": "Official signed UsbDk 1.0.22",
+  "Artifacts": [
+    {
+      "File": "NimBox-1-ASIO-0.1.0-x64-setup.exe",
+      "Bytes": 8494214,
+      "SHA256": "4490F90906F45CE64B1ABB636CA64D09A842C45017B70138081E82AB4EE3128B"
+    },
+    {
+      "File": "NimBox-1-ASIO-0.1.0-source.zip",
+      "Bytes": 62409,
+      "SHA256": "027B2768AB9FD4A9E7DDC9041CECF4485769BBBB49D8FA9908EA7D5D9DD8F4D1"
+    }
+  ]
+}

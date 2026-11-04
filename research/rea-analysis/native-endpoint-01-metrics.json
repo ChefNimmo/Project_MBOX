@@ -1,0 +1,38 @@
+{
+  "date": "2026-11-04",
+  "status": "development-only; native kernel not loaded",
+  "upstream": "1fd430c78971c31b624b0773bbea825d8b480d55",
+  "checks": {
+    "controlCodeAnalysis": "pass",
+    "catalogueSignability": "pass, unsigned catalogue",
+    "overflows": 0,
+    "kernelBuild": "pass /W4 /WX",
+    "inputFrames": 719993,
+    "callbacks": 2812,
+    "silentUsbSeconds": 15,
+    "packagedSourceKernelRebuild": "pass",
+    "nativeKernelExecution": "not performed",
+    "guardedRingCases": 4224,
+    "underruns": 0,
+    "usbErrors": 0,
+    "infVerification": "pass",
+    "nativeWindowsEndpointProbe": "not found as expected, HRESULT 80070490",
+    "outputFrames": 719993
+  },
+  "security": {
+    "secureBootReadback": false,
+    "testSigningBcdOption": "not set in current entry",
+    "changed": false
+  },
+  "artifacts": [
+    {
+      "sha256": "0BEC099B2CD27EEA483F5742C2BB45F0DE255FE31C49125E74E51EF70F4844E5",
+      "file": "NimBox-1-native-0.2.0-dev-x64.zip"
+    },
+    {
+      "sha256": "154B5A95E006B14C12FE3524E89B19800948332D75D6C9691A0495B2FC473995",
+      "file": "NimBox-1-native-0.2.0-dev-source.zip"
+    }
+  ]
+}
+

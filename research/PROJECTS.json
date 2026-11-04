@@ -1,0 +1,142 @@
+[
+  {
+    "id": "mbox1-jumper",
+    "model": "Original Mbox",
+    "type": "Standalone hardware mod",
+    "url": "https://zachpoff.com/resources/digidesign-mbox-1-standalone-mod/",
+    "evidence": "Author article inspected",
+    "summary": "2024 update describes reversible LK1 jumper for standalone preamp and S/PDIF; later confirmations reported. Earlier destructive trace-cut mod is superseded. Does not restore host USB audio.",
+    "relevance": "High: hardware enable/power behaviour; corrects our earlier analogue-only summary.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox1-headphones",
+    "model": "Original Mbox",
+    "type": "Headphone socket mod",
+    "url": "https://groupdiy.com/threads/digidesign-mbox-1-headphone-sockets-mod.30586/",
+    "evidence": "Original poster inspected",
+    "summary": "Two jumper wires bypass socket switching so front and rear headphones can operate together. Photo attachment linked; electrical loading not independently tested.",
+    "relevance": "Low for driver; useful hardware reference.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox1-linux",
+    "model": "Original Mbox",
+    "type": "Linux driver",
+    "url": "https://www.zamaudio.com/?p=953",
+    "evidence": "Previously inspected author source",
+    "summary": "Capture/playback fixes, firmware 0.22 recommendation and historical source; author reports upstream inclusion at Linux 3.19.",
+    "relevance": "Highest protocol relevance; use with current kernel comparison.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox1-alsa-source",
+    "model": "Original Mbox",
+    "type": "Historical source",
+    "url": "https://github.com/zamaudio/alsa-driver/tree/mbox1clean",
+    "evidence": "Local source inspected earlier",
+    "summary": "Original-Mbox fixed dual-endpoint handling and packed 24-bit big-endian format. Existing archive in downloads.",
+    "relevance": "High; source license must be preserved.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox1-ploytec",
+    "model": "Original Mbox",
+    "type": "Proprietary alternative driver",
+    "url": "https://www.usb-audio.com/download/",
+    "evidence": "Vendor inspected earlier",
+    "summary": "Official Windows x64 demo lists Mbox and Windows 11; old release, no full-feature validation. Vendor support documents white-noise issue.",
+    "relevance": "High practical baseline; not open source.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox1-repack",
+    "model": "Original Mbox",
+    "type": "Archived binary repack",
+    "url": "https://github.com/MeblIkea/MBOX1-Digidesign-driver",
+    "evidence": "Repository inspected",
+    "summary": "Archived in 2023; author says they did not create driver. Not evidence of reverse engineering or ongoing development. Shared keys excluded.",
+    "relevance": "Low; prefer official vendor demo.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox2-mini-open",
+    "model": "Mbox 2 Mini ONLY",
+    "type": "Open firmware / ASIO / hub",
+    "url": "https://github.com/ItsMeATaco/mbox2-mini-open-firmware",
+    "evidence": "Repository README inspected",
+    "summary": "Author describes TUSB3200A replacement firmware and Windows class-driver operation, 24-bit playback but 16-bit recording, 44.1/48 kHz; user-mode ASIO layer and hub. GPL-3.0 shown. Claimed tests not independently reproduced.",
+    "relevance": "High architectural reference; cannot flash onto original Mbox.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox2-linux",
+    "model": "Mbox 2",
+    "type": "Linux driver and firmware research",
+    "url": "https://www.zamaudio.com/97/",
+    "evidence": "Author article inspected",
+    "summary": "Historical unofficial Linux driver, source module and firmware upgrade discussion. Not original-Mbox firmware.",
+    "relevance": "Useful comparative initialization research.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox2-upgrade",
+    "model": "Mbox 2",
+    "type": "Firmware upgrade walkthrough",
+    "url": "https://gist.github.com/vectorsigma/37c8e9993de29b25caef6c9c2686797b",
+    "evidence": "Author gist inspected",
+    "summary": "Legacy firmware recovery/update account; starts with a notice directing readers to a newer method in comments. Preserve revision context.",
+    "relevance": "Reference only; old procedures may be superseded.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox2-selah",
+    "model": "Mbox 2",
+    "type": "Linux patch / control console",
+    "url": "https://www.selahos.io/docs/audio-interfaces.html",
+    "evidence": "Project documentation inspected",
+    "summary": "Project says it reverse-engineered Windows initialization and skips an incompatible command in Linux. Playback/recording/MIDI reported on one machine at 48 kHz; stability unqualified; docs say changes not in Beta 2.0.1 download.",
+    "relevance": "High comparison lead; exact patch not obtained.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox2-analogue",
+    "model": "Mbox 2",
+    "type": "Analogue DIY modification",
+    "url": "https://groupdiy.com/threads/digidesign-mbox-2-mods.51554/",
+    "evidence": "Search-index excerpt only; direct fetch 403",
+    "summary": "Discussion of converter buffer circuitry, component changes and separate 5V supply; attachments/schematics not verified in this sweep.",
+    "relevance": "Hardware lead only; not an original Mbox schematic.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox3pro-apple",
+    "model": "Mbox Pro 3 FireWire",
+    "type": "Experimental Apple Silicon driver",
+    "url": "https://www.reddit.com/r/Avid/comments/1vtzqyu/avid_mbox_pro_3_firewire_sillicon_driver_third/",
+    "evidence": "Author announcement inspected",
+    "summary": "Author reports user-space FireWire/DICE work and plans for HAL integration; source release promised, not confirmed here.",
+    "relevance": "Conceptual only; different transport and generation.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox3pro-bla",
+    "model": "Mbox Pro 3",
+    "type": "Commercial analogue upgrade",
+    "url": "https://mods.blacklionaudio.com/products/avid-mbox-3-pro-mod",
+    "evidence": "Vendor listing inspected",
+    "summary": "Vendor offers op-amp changes and premium signal-path capacitor changes. Performance claims are vendor claims; no independent measurements collected.",
+    "relevance": "No Windows compatibility benefit established.",
+    "accessed": "2026-11-04"
+  },
+  {
+    "id": "mbox-schematics",
+    "model": "Multiple / original mentioned",
+    "type": "Schematic availability discussion",
+    "url": "https://groupdiy.com/threads/digidesign-schematics.36564/",
+    "evidence": "Search-index excerpt",
+    "summary": "Community requests for Digidesign circuit diagrams; no verified original-Mbox service schematic obtained.",
+    "relevance": "Documents missing information, not a schematic source.",
+    "accessed": "2026-11-04"
+  }
+]
