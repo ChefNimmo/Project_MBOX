@@ -1,6 +1,8 @@
 # NimBox hardware-test route with an existing signed USB transport
 
-Prepared 2026-11-04 (Australia/Sydney). **Not installed or approved yet.**
+Prepared and approved 2026-11-04 (Australia/Sydney). **Installation and hardware tests completed.**
+This file retains the reviewed plan below. See NIMBOX-HARDWARE-01.md for results. Ploytec was initially
+retained for rollback, then explicitly removed at the user's request after successful NimBox tests.
 
 ## Why this route
 
@@ -25,7 +27,8 @@ assurance of Windows 11 compatibility or a completed audio driver.
   Windows policy, HVCI or vulnerable-driver blocking will permit it to load. Do not weaken protections
   if it is rejected.
 - Administrative MSI extraction was checked first: only standard file/image actions were present;
-  it extracted into the workspace without installing. No UsbDk service is currently registered.
+  it extracted into the workspace without installing. UsbDk was subsequently installed under the
+  approved plan, completed with MSI exit 0, and its kernel service is running.
 
 ## Prepared NimBox client
 
@@ -46,7 +49,8 @@ No hider rules, firmware flash, tone, raw recording or driver-signing configurat
 
 The new backend compiles and passes source static analysis. Existing simulation/core/adapter tests
 pass. Loading the verified helper succeeded; enumeration returned Windows error 2 because UsbDk
-is not installed. No UsbDk transfer or redirection has run on hardware. Upstream source confirms
+was not installed at that point. Subsequent hardware tests succeeded; see the results report.
+Upstream source confirms
 explicit per-packet offsets and the control-setup/data buffer layout used by this client.
 
 ## Proposed installation and hardware validation
@@ -70,10 +74,18 @@ code writes the USB setup class UpperFilters list and resets USB host controller
 devices can disconnect, including external storage. Finish transfers before approving installation.
 That broader effect is why approval is requested for this specific step.
 
-The Ploytec packages stay installed. No manual registry filter replacement is planned. The official
+The plan initially kept Ploytec installed. The user later requested and authorised its removal; the
+packages and ASIO registration were removed after successful independent streaming tests.
+No manual registry filter replacement was performed. The official
 MSI uninstall is prepared as `Invoke-UsbDkSetup.ps1 -Action Remove`; it removes UsbDk's registration
 and resets controllers too. It can also require a restart. The saved prior filter value is diagnostic
 evidence, not an instruction to overwrite the whole registry class later.
+
+Operational note: elevated Windows PowerShell blocked invocation of the setup `.ps1` before any
+mutation. The same reviewed hash/signature checks, filter backup and MSI commands were executed
+directly in an elevated PowerShell command instead; neither execution policy nor boot security was
+changed. Future rollback can likewise invoke the official MSI directly if script policy blocks the
+helper file. No automatic reboot was performed.
 
 ## Primary sources and local evidence
 
