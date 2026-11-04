@@ -1,5 +1,18 @@
 # NimBox 1 USB audio device
 
+## Installable ASIO release
+
+Experimental ASIO 0.1.0 is now built and installed on the test PC. The installer and corresponding
+GPLv3 source archive are under the analysis root's `dist/` directory. Select **NimBox 1 USB audio
+device** in a 64-bit ASIO application. Start with 48 kHz / 256 frames and allow ten seconds for the
+input warm-up mute after starting the engine. See `asio/README.md` for supported features and limits.
+
+This is a user-mode ASIO DLL using the official signed UsbDk runtime, not the unsigned kernel
+prototype below. It does not create Windows Speakers/Line In endpoints or provide S/PDIF.
+Installation, ASIO registration, uninstall/reinstall, live callbacks, input warm-up, stereo tone and
+restart have been checked. The 60-second queue test reported zero underruns/overflows/USB errors.
+Detailed build/test evidence is in `research/rea-analysis/ASIO-PACKAGE-01.md` on GitHub.
+
 Target: Windows 11 x64, original Digidesign Mbox VID 0DBA/PID 1000.
 NimBox is an independent compatibility project; it is not affiliated with or endorsed by Avid or
 Digidesign. Original product names identify supported hardware and historical research sources.
@@ -48,9 +61,9 @@ overflow atomically; reads zero-fill underruns and report the consumed frame cou
 nothing during operation. This adapter has a single owner; an eventual ASIO callback thread must
 add a deliberate synchronisation/ownership boundary before sharing it with the USB thread.
 
-Continuous queued requests and a block adapter are now implemented for the silent diagnostic, but
-live timing, kernel lifecycle and recovery still need validation. An ASIO/Windows audio frontend
-and its thread boundary are still required before the project can replace an audio driver.
+Continuous queued requests and a block adapter are implemented for the diagnostic and the new
+user-mode ASIO frontend. The separate kernel prototype's lifecycle and recovery remain unvalidated;
+the installable release uses signed UsbDk instead. Windows system-audio endpoints are not included.
 
 ## Reproduce the build
 
@@ -95,16 +108,16 @@ API headers and their Apache licence/notices are retained under `third_party/usb
 
 Capture has a significant startup transient: first-two-second RMS was about -40 dBFS, falling to
 about -79/-83 dBFS after ten seconds in one idle run. RMS/DC/peak windows are now reported, not hidden
-by a filter. The eventual frontend must handle startup settling. Short unprimed capture tests are
+by a filter. The new ASIO frontend mutes inputs for ten seconds while they settle. Short unprimed capture tests are
 not channel-isolation or noise-floor specifications. Nominal OUT and actual IN frame totals also
 differ slightly; clock-domain handling requires longer-term validation.
 
-1. Build the ASIO/user-mode frontend using the working signed UsbDk transport; the separate custom
-   kernel `.sys` remains unsigned and unloaded.
+1. Continue real-DAW and longer-session validation of the new ASIO/user-mode frontend; the separate
+   custom kernel `.sys` remains unsigned and unloaded.
 2. Validate the queued diagnostic's kernel cancellation, removal and power lifecycle on a test system.
 3. Validate silent USB transfers, sample cadence, rate control and captured data on hardware.
-4. Expose the independent transport to ASIO and/or the Windows audio subsystem, handling initial
-   capture settling and the frontend/transport thread boundary.
+4. Optimise latency and startup handling after controlled loopback calibration. ASIO exists now;
+   Windows system-audio endpoints are a separate future component.
 5. Test channel mapping, signal levels, recovery, latency and longer-duration duplex streaming.
 6. Produce an appropriately signed installable package. Existing Windows security stays enabled.
 
@@ -115,8 +128,9 @@ boot-security change is planned.
 At the user's subsequent request, Ploytec driver packages, ASIO/COM registration and leftover stopped
 services were removed. Research/download copies are retained and are not installed. NimBox playback
 and capture were tested after removal. No proprietary demo timer was patched or suppressed.
-There is not yet a selectable NimBox ASIO or Windows audio endpoint; the working path is this
-diagnostic client through UsbDk. See `research/rea-analysis/NIMBOX-HARDWARE-01.md` for exact results.
+NimBox is now registered for x64 ASIO. There is still no Windows system-audio endpoint.
+See `research/rea-analysis/NIMBOX-HARDWARE-01.md` for the original transport results and
+`research/rea-analysis/ASIO-PACKAGE-01.md` for the installable frontend's results.
 
 References:
 - https://learn.microsoft.com/en-us/windows/win32/api/winusb/nf-winusb-winusb_writeisochpipeasap

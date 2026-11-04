@@ -1,0 +1,18 @@
+NimBox 1 ASIO — experimental Windows 11 x64 build
+
+Supports the original Digidesign Mbox (VID 0DBA/PID 1000).
+After installation, choose “NimBox 1 USB audio device” as the ASIO driver in a 64-bit application.
+This does not create a Windows Speakers/Line In device.
+
+Close audio applications before installing. If the signed UsbDk runtime is not already installed,
+setup installs it and may briefly disconnect USB devices. Finish USB storage transfers first.
+The shared UsbDk runtime is retained when NimBox is uninstalled.
+
+Inputs are muted for ten seconds after streaming starts while the hardware settles.
+Use low headphone volume initially. Use the hardware input gain/selector and Mix controls.
+
+This is an early hardware-tested build. Buffer size is fixed at 256 frames and output buffering is
+conservative. Latency values are estimates; S/PDIF and Windows system audio are not included.
+No boot-security settings or firmware are changed. The setup executable is not digitally signed.
+
+The GPLv3 corresponding source is included with the installation.
