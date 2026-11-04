@@ -35,7 +35,7 @@ KmdfService=MboxResearch,MboxWdf
 [MboxWdf]
 KmdfLibraryVersion=1.15
 [Strings]
-Provider="Project MBOX research"
-Description="Original Mbox experimental USB transport"
-Service="Mbox research transport"
-Disk="Mbox research package"
+Provider="NimBox project"
+Description="NimBox 1 USB audio device"
+Service="NimBox 1 USB audio device"
+Disk="NimBox 1 research package"
