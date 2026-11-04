@@ -29,11 +29,11 @@ Administrators and SYSTEM can open its exclusive interface.
 playback and capture. It reports USB and packet statuses without saving microphone audio.
 It does not install the driver or access the Ploytec interface.
 
-`kmdf/stream.c` adds a queued silent-stream diagnostic. It keeps up to four eight-frame requests
+`kmdf/stream.c` adds a queued stream diagnostic. It keeps up to four eight-frame requests
 pending in each direction (32 ms per direction), maintains fractional packet cadence across OUT
 buffers, validates capture packet bounds/status and computes per-channel peaks without recordings.
 `mbox_stream.exe silent 48000 10` would run a ten-second diagnostic on the **custom** device only;
-Ctrl+C cancels and drains outstanding requests. Playback is always zero-filled. There is no tone.
+Ctrl+C cancels and drains outstanding requests. Playback is zero-filled in silent mode.
 A five-second interval without completions causes cancellation; pending buffers are retained until
 their completion/ownership returns. Kernel transfer timeouts still apply.
 
@@ -81,26 +81,42 @@ This is a feasibility decision, not proof that all alternative transports are im
 
 ## Remaining work before replacement
 
-An additional user-mode backend is prepared in `kmdf/usbdk_backend.h`, using the separately installed,
-official signed UsbDk transport. `mbox_stream.exe usbdk-list <absolute-helper-DLL-path>` only enumerates;
-`usbdk-silent <absolute-helper-DLL-path> 48000 1` would temporarily redirect one validated original
-Mbox for a silent duplex diagnostic. This backend is untested on hardware. UsbDk has **not** been
-installed: its USB-class filter and host-controller reset need specific approval. See
+An additional user-mode backend is implemented in `kmdf/usbdk_backend.h`, using the separately installed,
+official signed UsbDk transport. UsbDk was installed with explicit approval on November 4; its service
+is running without a boot-security change. `mbox_stream.exe usbdk-list <absolute-helper-DLL-path>`
+only enumerates; `usbdk-silent <absolute-helper-DLL-path> 48000 1` temporarily redirects one validated
+original Mbox for silent duplex. Ten-second hardware tests succeeded at 48/44.1 kHz. The explicit
+`usbdk-tone <absolute-helper-DLL-path> 48000 5` diagnostic emits a five-second, 750 Hz stereo tone
+at -40 dBFS peak with fades. Do not run tone mode unless the listener has low headphone volume.
+The user confirmed both headphone channels before and after Ploytec removal. Microphone signals
+were measured on both inputs after removal, without saving audio. See
 `research/rea-analysis/USBDK-TEST-PLAN.md` in the repository, or `research/USBDK-TEST-PLAN.md` locally.
 API headers and their Apache licence/notices are retained under `third_party/usbdk`.
 
-1. Obtain a supported driver-signing/test environment; the built `.sys` is unsigned.
+Capture has a significant startup transient: first-two-second RMS was about -40 dBFS, falling to
+about -79/-83 dBFS after ten seconds in one idle run. RMS/DC/peak windows are now reported, not hidden
+by a filter. The eventual frontend must handle startup settling. Short unprimed capture tests are
+not channel-isolation or noise-floor specifications. Nominal OUT and actual IN frame totals also
+differ slightly; clock-domain handling requires longer-term validation.
+
+1. Build the ASIO/user-mode frontend using the working signed UsbDk transport; the separate custom
+   kernel `.sys` remains unsigned and unloaded.
 2. Validate the queued diagnostic's kernel cancellation, removal and power lifecycle on a test system.
 3. Validate silent USB transfers, sample cadence, rate control and captured data on hardware.
-4. Expose the independent transport to ASIO and/or the Windows audio subsystem.
+4. Expose the independent transport to ASIO and/or the Windows audio subsystem, handling initial
+   capture settling and the frontend/transport thread boundary.
 5. Test channel mapping, signal levels, recovery, latency and longer-duration duplex streaming.
 6. Produce an appropriately signed installable package. Existing Windows security stays enabled.
 
 There is a compiled experimental `.sys`, but no signed, validated audio-driver replacement yet.
 The user has chosen continued development on this PC without changing boot security. The unsigned
-driver is not loaded and the existing driver binding is retained; no boot-security change is planned.
-The working Ploytec baseline is still installed. Buying a legitimate Ploytec license is a separate path;
-this source does not remove or suppress the proprietary demo beep.
+kernel prototype is not loaded; the approved signed UsbDk transport is used for live tests, and no
+boot-security change is planned.
+At the user's subsequent request, Ploytec driver packages, ASIO/COM registration and leftover stopped
+services were removed. Research/download copies are retained and are not installed. NimBox playback
+and capture were tested after removal. No proprietary demo timer was patched or suppressed.
+There is not yet a selectable NimBox ASIO or Windows audio endpoint; the working path is this
+diagnostic client through UsbDk. See `research/rea-analysis/NIMBOX-HARDWARE-01.md` for exact results.
 
 References:
 - https://learn.microsoft.com/en-us/windows/win32/api/winusb/nf-winusb-winusb_writeisochpipeasap
