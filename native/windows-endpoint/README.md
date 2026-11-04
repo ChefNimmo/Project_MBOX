@@ -66,7 +66,8 @@ root device, trusts certificates, or changes boot policy.
 - The 10-second input startup mute remains in the shared USB engine.
 - An unsigned catalogue does not permit kernel loading under normal signing enforcement.
   A supported signing/testing route must be agreed before installation. Current boot policy
-  has not been changed. The working ASIO installation remains the rollback option.
+  is now separately approved and configured for Test Mode, pending a manual restart; see
+  `research/rea-analysis/NATIVE-TESTMODE-01.md`. The working ASIO installation remains the rollback option.
 
 Own additions: GPL-3.0-only, see `../COPYING`. Microsoft source/patch context retains its MIT
 licence, reproduced in `MICROSOFT-LICENSE.txt`. UsbDk headers retain Apache-2.0 notices.
