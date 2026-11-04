@@ -1,4 +1,4 @@
-/* Silent pipeline diagnostic and deterministic backend tests.
+/* Pipeline diagnostics (silent by default) and deterministic backend tests.
  * No ASIO/WASAPI registration, recordings, driver install or security changes. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -12,9 +12,13 @@
 #include "../core/mbox_stream.h"
 #include "../core/mbox_gate.h"
 #include "../core/mbox_audio_fifo.h"
+#include "../core/mbox_test_tone.h"
 DEFINE_GUID(GUID_DEVINTERFACE_MBOX_STREAM,
  0x65ec12b8,0xe2a2,0x41b0,0x96,0x5e,0x78,0xcf,0x2a,0x39,0x83,0xc1);
 enum { SLOT_COUNT=2*MBOX_PIPE_DEPTH };
+typedef struct {
+ uint64_t Frames;uint32_t Peak[2];double Sum[2],SumSquares[2];
+} LEVEL_WINDOW;
 typedef struct {
  unsigned Index,Direction;int Active;
  OVERLAPPED Ov;
@@ -25,6 +29,9 @@ typedef struct {
  uint64_t Submitted[2],Completed[2],Frames[2];
  unsigned Pending,MaxPending,Cancelled,Failures;
  uint32_t Peak[2];
+ uint64_t HostFrames;
+ double Sum[2],SumSquares[2];
+ ULONG Rate;LEVEL_WINDOW Initial,Later,AfterTen;
 } STATS;
 typedef struct BACKEND {
  void *Context;
@@ -43,13 +50,45 @@ static void host_peaks(STATS *stats,const int32_t *left,const int32_t *right,siz
   uint32_t peaks[2]={left[i]<0?0u-(uint32_t)left[i]:(uint32_t)left[i],
                     right[i]<0?0u-(uint32_t)right[i]:(uint32_t)right[i]};
   for(unsigned c=0;c<2;c++)if(peaks[c]>stats->Peak[c])stats->Peak[c]=peaks[c];
+  double samples[2]={(double)left[i]/2147483648.0,(double)right[i]/2147483648.0};
+  for(unsigned c=0;c<2;c++){stats->Sum[c]+=samples[c];stats->SumSquares[c]+=samples[c]*samples[c];}
+  LEVEL_WINDOW *window=stats->HostFrames+i<(uint64_t)stats->Rate*2?&stats->Initial:&stats->Later;
+  for(unsigned c=0;c<2;c++) {
+   if(peaks[c]>window->Peak[c])window->Peak[c]=peaks[c];
+   window->Sum[c]+=samples[c];window->SumSquares[c]+=samples[c]*samples[c];
+  }
+  window->Frames++;
+  if(stats->HostFrames+i>=(uint64_t)stats->Rate*10) {
+   for(unsigned c=0;c<2;c++) {
+    if(peaks[c]>stats->AfterTen.Peak[c])stats->AfterTen.Peak[c]=peaks[c];
+    stats->AfterTen.Sum[c]+=samples[c];stats->AfterTen.SumSquares[c]+=samples[c]*samples[c];
+   }
+   stats->AfterTen.Frames++;
+  }
+ }
+ stats->HostFrames+=frames;
+}
+static void print_levels(const STATS *stats) {
+ for(unsigned c=0;c<2;c++) {
+  double mean=stats->HostFrames?stats->Sum[c]/(double)stats->HostFrames:0.0;
+  double rms=stats->HostFrames?sqrt(stats->SumSquares[c]/(double)stats->HostFrames):0.0;
+  printf("Capture channel %u: RMS %.2f dBFS, DC %.9f, frames=%llu\n",c+1,
+   rms>0.0?20.0*log10(rms):-300.0,mean,(unsigned long long)stats->HostFrames);
+  const LEVEL_WINDOW *windows[3]={&stats->Initial,&stats->Later,&stats->AfterTen};
+  const char *names[3]={"first two seconds","after two seconds","after ten seconds"};
+  for(unsigned w=0;w<3;w++)if(windows[w]->Frames) {
+   const LEVEL_WINDOW *v=windows[w];double n=(double)v->Frames;
+   double level=sqrt(v->SumSquares[c]/n);
+   printf("  %s: RMS %.2f dBFS, DC %.9f, peak=%lu, frames=%llu\n",names[w],
+    level>0?20.0*log10(level):-300.0,v->Sum[c]/n,(ULONG)v->Peak[c],(unsigned long long)v->Frames);
+  }
  }
 }
 
 /* This scheduler is shared by the actual DeviceIoControl backend and simulator.
  * All slots stay alive until their completion has been drained, including after
  * submit/completion failure or cancellation. Only the control thread owns slots. */
-static int run(BACKEND *backend,ULONG rate,unsigned seconds,STATS *stats) {
+static int run(BACKEND *backend,ULONG rate,unsigned seconds,STATS *stats,int tone) {
  SLOT *slots=(SLOT*)calloc(SLOT_COUNT,sizeof(SLOT));
  AUDIO_WORK *audio=(AUDIO_WORK*)calloc(1,sizeof(AUDIO_WORK));
  HANDLE events[SLOT_COUNT]={0}; /* owned by scheduler, never by a backend */
@@ -57,7 +96,9 @@ static int run(BACKEND *backend,ULONG rate,unsigned seconds,STATS *stats) {
  int32_t *left,*right;
  mbox_audio_fifo tx,rx;
  int result=0;unsigned idle=0,eventCount=0;
+ uint64_t rendered=0;
  memset(stats,0,sizeof(*stats));
+ stats->Rate=rate;
  if(!slots||!audio||!target||!mbox_clock_init(&clock,rate)){free(audio);free(slots);return 1;}
  left=audio->Left;right=audio->Right;
  if(!mbox_fifo_init(&tx,audio->Tx,1024)||!mbox_fifo_init(&rx,audio->Rx,1024)){free(audio);free(slots);return 1;}
@@ -82,8 +123,9 @@ static int run(BACKEND *backend,ULONG rate,unsigned seconds,STATS *stats) {
      s->Input.Length[p]=packets[p].length;
      size_t needed=packets[p].length/6;
      while(tx.count<needed) {
-      /* Silent host blocks only. The future audio frontend will supply these. */
+      /* Silence by default; the tone is an explicitly selected diagnostic. */
       memset(left,0,256*sizeof(*left));memset(right,0,256*sizeof(*right));
+      if(tone&&!mbox_test_tone(left,right,256,rate,&rendered,(uint64_t)rate*seconds)){result=1;goto drain;}
       if(!mbox_fifo_write_planar(&tx,left,right,256)){result=1;goto drain;}
      }
      if(mbox_fifo_read_wire(&tx,&s->Input.Data[packets[p].offset],packets[p].length)!=needed) {
@@ -210,12 +252,20 @@ static int self_test(void) {
   if(fault==6)m.UsbError=17;
   if(fault==7){m.BadOffset=1;m.Random=0;}
   if(fault==8)m.Stall=1;
-  int result=run(&backend,rate,600,&stats);
+  int result=run(&backend,rate,600,&stats,0);
   if(m.Gate||stats.Pending||stats.MaxPending>8||m.Cancelled!=stats.Cancelled)return 1;
   if(!fault) {
    if(result||stats.Completed[0]!=75000||stats.Completed[1]!=75000||
       stats.Frames[0]!=(uint64_t)rate*600||stats.Frames[1]!=(uint64_t)rate*600||
+      stats.HostFrames!=(uint64_t)rate*600||
+      stats.Initial.Frames!=(uint64_t)rate*2||stats.Later.Frames!=(uint64_t)rate*598||
+      stats.AfterTen.Frames!=(uint64_t)rate*590||
       stats.Peak[0]!=0x12345600u||stats.Peak[1]!=0x23456700u||stats.MaxPending!=8)return 1;
+   double left=0x12345600u/2147483648.0,right=-((double)0x23456700u/2147483648.0);
+   if(fabs(stats.Sum[0]/(double)stats.HostFrames-left)>1e-8||
+      fabs(stats.Sum[1]/(double)stats.HostFrames-right)>1e-8||
+      fabs(stats.SumSquares[0]/(double)stats.HostFrames-left*left)>1e-8||
+      fabs(stats.SumSquares[1]/(double)stats.HostFrames-right*right)>1e-8)return 1;
   } else if(result!=(fault==3?2:1))return 1;
   printf("PASS simulated %lu Hz case %u: result=%d, completed=%llu/%llu, drained=%u\n",
    (ULONG)rate,fault,result,(unsigned long long)stats.Completed[0],(unsigned long long)stats.Completed[1],stats.Cancelled);
@@ -267,15 +317,18 @@ static HANDLE open_device(void) {
 }
 #include "usbdk_backend.h"
 int main(int argc,char **argv) {
+ setvbuf(stdout,NULL,_IONBF,0);
  if(argc==2&&strcmp(argv[1],"--self-test")==0)return self_test();
  if((argc==3&&strcmp(argv[1],"usbdk-list")==0)||
-    (argc==5&&strcmp(argv[1],"usbdk-silent")==0)) {
+    (argc==5&&(strcmp(argv[1],"usbdk-silent")==0||strcmp(argv[1],"usbdk-tone")==0))) {
   int silent=argc==5;ULONG rate=0;unsigned long seconds=0;char *end;
+  int tone=strcmp(argv[1],"usbdk-tone")==0;
   if(silent) {
    if(strcmp(argv[3],"44100")==0)rate=44100;
    else if(strcmp(argv[3],"48000")==0)rate=48000;
    else return 2;
    seconds=strtoul(argv[4],&end,10);if(!*argv[4]||*end||seconds<1||seconds>60)return 2;
+   if(tone&&seconds>5)return 2;
   }
   UDK *u=(UDK*)calloc(1,sizeof(UDK));if(!u)return 1;
   int result=1;
@@ -283,10 +336,12 @@ int main(int argc,char **argv) {
    if(!silent)result=0;
    else if(udk_rate(u,rate)) {
     BACKEND backend={u,udk_submit,real_wait,udk_finish,udk_cancel,real_stop};STATS stats;
-    SetConsoleCtrlHandler(on_console,TRUE);result=run(&backend,rate,(unsigned)seconds,&stats);
+    if(tone)puts("Diagnostic tone: 750 Hz, -40 dBFS peak, both channels, maximum five seconds.");
+    SetConsoleCtrlHandler(on_console,TRUE);result=run(&backend,rate,(unsigned)seconds,&stats,tone);
     SetConsoleCtrlHandler(on_console,FALSE);
     printf("UsbDk result=%d OUT/IN frames=%llu/%llu peak=%lu/%lu failures=%u cancelled=%u\n",
      result,(unsigned long long)stats.Frames[0],(unsigned long long)stats.Frames[1],stats.Peak[0],stats.Peak[1],stats.Failures,stats.Cancelled);
+    print_levels(&stats);
    }
   }
   udk_close(u);free(u);return result;
@@ -295,7 +350,8 @@ int main(int argc,char **argv) {
     (strcmp(argv[2],"44100")&&strcmp(argv[2],"48000"))) {
   puts("Usage: mbox_stream.exe --self-test | silent 44100|48000 seconds(1..60)");
   puts("       mbox_stream.exe usbdk-list C:\\absolute\\UsbDkHelper.dll");
-  puts("       mbox_stream.exe usbdk-silent C:\\absolute\\UsbDkHelper.dll 44100|48000 seconds");return 2;
+  puts("       mbox_stream.exe usbdk-silent C:\\absolute\\UsbDkHelper.dll 44100|48000 seconds");
+  puts("       mbox_stream.exe usbdk-tone C:\\absolute\\UsbDkHelper.dll 44100|48000 seconds(1..5)");return 2;
  }
  char *end;unsigned long duration=strtoul(argv[3],&end,10);
  if(!*argv[3]||*end||duration<1||duration>60)return 2;
@@ -310,10 +366,11 @@ int main(int argc,char **argv) {
   if(GetOverlappedResult(device,&ov,&bytes,TRUE)) {
    BACKEND backend={device,real_submit,real_wait,real_finish,real_cancel,real_stop};STATS stats;
    SetConsoleCtrlHandler(on_console,TRUE);
-   result=run(&backend,rate,(unsigned)duration,&stats);
+   result=run(&backend,rate,(unsigned)duration,&stats,0);
    printf("result=%d completed OUT/IN=%llu/%llu frames=%llu/%llu peak=%lu/%lu errors=%u cancelled=%u\n",
     result,(unsigned long long)stats.Completed[0],(unsigned long long)stats.Completed[1],
     (unsigned long long)stats.Frames[0],(unsigned long long)stats.Frames[1],stats.Peak[0],stats.Peak[1],stats.Failures,stats.Cancelled);
+   print_levels(&stats);
    SetConsoleCtrlHandler(on_console,FALSE);
   }
  }
