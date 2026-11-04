@@ -26,7 +26,10 @@ cl /nologo /analyze /analyze:external- /external:anglebrackets /external:W0 /W4 
 if errorlevel 1 exit /b 1
 "%MBOX_ROOT%build\mbox_stream.exe" --self-test
 if errorlevel 1 exit /b 1
+cl /nologo /W4 /WX /wd4505 /std:c17 /O2 /Fe:"%MBOX_ROOT%build\test_audio_fifo.exe" /Fo:"%MBOX_ROOT%build\test_audio_fifo.obj" "%MBOX_ROOT%tests\test_audio_fifo.c"
+if errorlevel 1 exit /b 1
+"%MBOX_ROOT%build\test_audio_fifo.exe"
+if errorlevel 1 exit /b 1
 "%MBOX_KITS%\Tools\%MBOX_SDK%\x64\infverif.exe" /w /v "%MBOX_ROOT%kmdf\MboxResearch.inf"
 if errorlevel 1 exit /b 1
 echo Built unsigned experimental transport and probe. This script does not install them.
-
