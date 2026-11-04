@@ -1,6 +1,10 @@
-# Independent original-Mbox replacement
+# NimBox 1 USB audio device
 
 Target: Windows 11 x64, original Digidesign Mbox VID 0DBA/PID 1000.
+NimBox is an independent compatibility project; it is not affiliated with or endorsed by Avid or
+Digidesign. Original product names identify supported hardware and historical research sources.
+The experimental INF uses the display name "NimBox 1 USB audio device". Internal research filenames,
+hardware identifiers, third-party notices and historical evidence are retained.
 No proprietary driver binaries, patched licensing or demo timers form part of this implementation.
 
 ## Current implementation
@@ -38,9 +42,15 @@ it never enumerates or opens the Mbox. It checks ten virtual minutes at each sam
 stereo sample preservation, varied completion ordering and eight fault/cancellation cases per rate.
 The fake backend does not execute the kernel driver or emulate USB hardware/Windows scheduling.
 
-Continuous queued requests are now implemented for the silent diagnostic, but live timing, kernel
-lifecycle and recovery still need validation. An ASIO/Windows audio frontend and audio buffer adapter
-are still required before the project can replace an audio driver.
+`core/mbox_audio_fifo.h` now adapts planar 256-frame host blocks to variable USB packets and back.
+It is used by the streaming client for silent output and capture peak processing. Writes reject
+overflow atomically; reads zero-fill underruns and report the consumed frame count. It allocates
+nothing during operation. This adapter has a single owner; an eventual ASIO callback thread must
+add a deliberate synchronisation/ownership boundary before sharing it with the USB thread.
+
+Continuous queued requests and a block adapter are now implemented for the silent diagnostic, but
+live timing, kernel lifecycle and recovery still need validation. An ASIO/Windows audio frontend
+and its thread boundary are still required before the project can replace an audio driver.
 
 ## Reproduce the build
 
@@ -48,6 +58,9 @@ Install Microsoft VS 2022 C++ Build Tools, SDK 10.0.26100.0 and matching WDK 261
 Run `native\build.cmd` from a developer workstation. This builds and executes the core tests,
 then builds `build/MboxResearch.sys`, `build/mbox_probe.exe` and `build/mbox_stream.exe`, runs
 admission-state and simulated-pipeline checks, and validates the INF; it never installs anything.
+The audio-adapter test round-trips changing signed stereo data through 256-frame blocks and
+44/45/48-frame USB packets over ten virtual seconds per rate, including FIFO wraparound, full/empty
+states, malformed packets and zero-filled underruns.
 KMDF 1.15 targets the inbox Windows 10/11 framework. The experimental INF restricts installation
 to Windows 11 x64 and the original Mbox hardware ID.
 
