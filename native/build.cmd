@@ -30,6 +30,10 @@ cl /nologo /W4 /WX /wd4505 /std:c17 /O2 /Fe:"%MBOX_ROOT%build\test_audio_fifo.ex
 if errorlevel 1 exit /b 1
 "%MBOX_ROOT%build\test_audio_fifo.exe"
 if errorlevel 1 exit /b 1
+cl /nologo /W4 /WX /std:c17 /O2 /Fe:"%MBOX_ROOT%build\test_tone.exe" /Fo:"%MBOX_ROOT%build\test_tone.obj" "%MBOX_ROOT%tests\test_tone.c"
+if errorlevel 1 exit /b 1
+"%MBOX_ROOT%build\test_tone.exe"
+if errorlevel 1 exit /b 1
 "%MBOX_KITS%\Tools\%MBOX_SDK%\x64\infverif.exe" /w /v "%MBOX_ROOT%kmdf\MboxResearch.inf"
 if errorlevel 1 exit /b 1
 echo Built unsigned experimental transport and probe. This script does not install them.
